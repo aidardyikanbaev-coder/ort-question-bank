@@ -670,10 +670,13 @@
   <div class="auth-card">
     <p class="eyebrow">Защищённый вход</p>
     <h2>Банк заданий ОРТ</h2>
-    <p>Введите email. Мы отправим одноразовую ссылку для входа — пароль не нужен.</p>
+    <p>Войдите по email и паролю. Одноразовая ссылка остаётся запасным способом.</p>
     <label for="authEmail">Email</label>
     <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com">
-    <button class="btn primary" id="authSend" type="button">Получить ссылку для входа</button>
+    <label for="authPassword">Пароль</label>
+    <input id="authPassword" type="password" autocomplete="current-password" placeholder="Не менее 6 символов">
+    <button class="btn primary" id="authPasswordSignIn" type="button">Войти</button>
+    <button class="btn" id="authSend" type="button">Получить одноразовую ссылку</button>
     <div class="auth-message" id="authMessage"></div>
   </div>
 </div>
@@ -693,7 +696,7 @@
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
     </div>
-    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
+    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><button class="btn ghost" id="authSetPassword" type="button">Задать пароль</button><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
   </header>
 
   <nav class="main-nav">
@@ -952,10 +955,13 @@
   const cloud = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
   const authGate = document.getElementById('authGate');
   const authEmail = document.getElementById('authEmail');
+  const authPassword = document.getElementById('authPassword');
+  const authPasswordSignIn = document.getElementById('authPasswordSignIn');
   const authSend = document.getElementById('authSend');
   const authMessage = document.getElementById('authMessage');
   const authUser = document.getElementById('authUser');
   const authUserEmail = document.getElementById('authUserEmail');
+  const authSetPassword = document.getElementById('authSetPassword');
   const authSignOut = document.getElementById('authSignOut');
   const cloudStatus = document.getElementById('cloudStatus');
   let currentCloudUser = null;
@@ -1002,7 +1008,33 @@
     authMessage.textContent='Ссылка отправлена. Откройте письмо и нажмите кнопку входа.';
   });
 
-  authEmail.addEventListener('keydown',e=>{if(e.key==='Enter')authSend.click();});
+  authPasswordSignIn.addEventListener('click',async()=>{
+    const email=authEmail.value.trim();
+    const password=authPassword.value;
+    if(!email||!password){authMessage.textContent='Введите email и пароль.';authMessage.classList.add('error');return;}
+    authPasswordSignIn.disabled=true;authMessage.classList.remove('error');authMessage.textContent='Входим…';
+    const {error}=await cloud.auth.signInWithPassword({email,password});
+    authPasswordSignIn.disabled=false;
+    if(error){authMessage.textContent='Не удалось войти. Проверьте email и пароль.';authMessage.classList.add('error');return;}
+    authMessage.textContent='';authPassword.value='';
+  });
+
+  authSetPassword.addEventListener('click',async()=>{
+    const password=prompt('Придумайте пароль: не менее 6 символов.');
+    if(password===null)return;
+    if(password.length<6){alert('Пароль должен содержать не менее 6 символов.');return;}
+    const repeat=prompt('Повторите пароль.');
+    if(repeat===null)return;
+    if(password!==repeat){alert('Пароли не совпадают. Попробуйте ещё раз.');return;}
+    authSetPassword.disabled=true;authSetPassword.textContent='Сохраняем…';
+    const {error}=await cloud.auth.updateUser({password});
+    authSetPassword.disabled=false;authSetPassword.textContent='Изменить пароль';
+    if(error){alert('Не удалось сохранить пароль: '+error.message);return;}
+    alert('Пароль сохранён. Теперь можно входить по email и паролю.');
+  });
+
+  authEmail.addEventListener('keydown',e=>{if(e.key==='Enter')authPasswordSignIn.click();});
+  authPassword.addEventListener('keydown',e=>{if(e.key==='Enter')authPasswordSignIn.click();});
   authSignOut.addEventListener('click',async()=>{await cloud.auth.signOut();showAuthSession(null);});
   cloud.auth.onAuthStateChange((_event,session)=>showAuthSession(session));
   initializeAuth();

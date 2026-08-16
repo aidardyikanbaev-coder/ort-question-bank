@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#20331B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ОРТ Банк">
 <title>Банк заданий ОРТ · Облачный вход</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -634,6 +640,10 @@
     .dash-grid,.test-summary,.analytics-grid,.format-choice{ grid-template-columns:1fr; }
     .preset-grid{ grid-template-columns:1fr 1fr; }
     .a4-preview-sheet{ zoom:.42; }
+    .topbar{align-items:stretch}.topbar-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.topbar-actions .btn{min-height:44px;padding:9px}.topbar-actions .btn-icon{min-height:44px}
+    .main-nav{position:sticky;top:0;z-index:50;background:var(--paper);padding-top:4px}
+    input,select,textarea{font-size:16px!important}.student-row{flex-wrap:wrap}.student-row .row-actions{width:100%;justify-content:flex-end}
+    .manage-page{width:100%!important}.inline-form{align-items:stretch}.inline-form .f{width:100%}.inline-form .btn{min-height:44px}
   }
 </style>
 <style>
@@ -649,10 +659,13 @@
   .auth-message.error{color:var(--error)}
   .auth-user{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:12px;color:var(--ink-soft)}
   .auth-user[hidden]{display:none}
+  .network-status{position:fixed;right:12px;bottom:12px;z-index:9000;padding:7px 10px;border-radius:20px;background:#8a3b2d;color:#fff;font-size:11px;box-shadow:var(--shadow)}
+  .network-status[hidden]{display:none}
   @media(max-width:700px){.auth-user span{display:none}.auth-card{padding:22px}}
 </style>
 </head>
 <body>
+<div class="network-status" id="networkStatus" hidden>Офлайн · изменения сохранятся в браузере</div>
 <div class="auth-gate" id="authGate">
   <div class="auth-card">
     <p class="eyebrow">Защищённый вход</p>
@@ -676,6 +689,7 @@
       <button class="btn-icon" id="btnMenu" title="Темы и теги" aria-label="Темы и теги" style="font:700 18px Georgia,serif">i</button>
       <button class="btn" id="btnExport">Экспорт JSON</button>
       <button class="btn" id="btnImportTrigger">Импорт JSON</button>
+      <button class="btn" id="btnInstallApp" hidden>Установить приложение</button>
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
     </div>
@@ -3373,6 +3387,14 @@
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     window.print();
   }
+
+  const installButton=document.getElementById('btnInstallApp');let deferredInstallPrompt=null;
+  window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installButton.hidden=false;});
+  installButton.addEventListener('click',async()=>{if(!deferredInstallPrompt)return;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;installButton.hidden=true;});
+  window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installButton.hidden=true;});
+  const networkStatus=document.getElementById('networkStatus');const updateNetworkStatus=()=>{networkStatus.hidden=navigator.onLine;};
+  window.addEventListener('online',updateNetworkStatus);window.addEventListener('offline',updateNetworkStatus);updateNetworkStatus();
+  if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(console.error));
 
   render();
 })();

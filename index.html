@@ -679,7 +679,7 @@
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
     </div>
-    <div class="auth-user" id="authUser" hidden><span id="authUserEmail"></span><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
+    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
   </header>
 
   <nav class="main-nav">
@@ -943,12 +943,24 @@
   const authUser = document.getElementById('authUser');
   const authUserEmail = document.getElementById('authUserEmail');
   const authSignOut = document.getElementById('authSignOut');
+  const cloudStatus = document.getElementById('cloudStatus');
+  let currentCloudUser = null;
+  let cloudReady = false;
+  let cloudSyncTimer = null;
+  let cloudSyncBusy = false;
 
   function showAuthSession(session){
     const signedIn = !!(session && session.user);
     authGate.hidden = signedIn;
     authUser.hidden = !signedIn;
     authUserEmail.textContent = signedIn ? session.user.email : '';
+    if(signedIn && currentCloudUser !== session.user.id){
+      currentCloudUser = session.user.id;
+      cloudReady = false;
+      cloudStatus.textContent = 'Загрузка каталога…';
+      setTimeout(()=>initializeCloudCatalog(session.user),0);
+    }
+    if(!signedIn){currentCloudUser=null;cloudReady=false;cloudStatus.textContent='Подключение…';}
   }
 
   async function initializeAuth(){
@@ -994,6 +1006,100 @@
   let activeSourceFilter = null;
   questions.forEach(q=>{ if(!q.status) q.status=q.disputed?'disputed':'draft'; if(q.deletedAt===undefined) q.deletedAt=null; });
 
+  function cloudQuestionRow(q,userId){
+    const correct=(q.options||[]).findIndex(o=>o.correct&&String(o.text||'').trim());
+    return {
+      owner_id:userId,
+      legacy_id:q.id,
+      seq:Number(q.seq)||null,
+      body:String(q.question||''),
+      context:q.context||null,
+      explanation:q.explanation||null,
+      difficulty:Number(q.difficulty)||null,
+      status:q.status||'draft',
+      correct_option_position:correct>=0?correct+1:null,
+      image_path:null,
+      archived_at:q.status==='archived'?(q.archivedAt||new Date().toISOString()):null,
+      deleted_at:q.deletedAt||null,
+      created_at:q.createdAt||new Date().toISOString(),
+      updated_at:new Date().toISOString(),
+      context_italic:!!q.contextItalic,
+      module:Number(q.module)||null,
+      disputed:!!q.disputed,
+      source_test:q.sourceTest||null,
+      source_index:q.sourceIndex||null,
+      source_comment:q.sourceComment||null,
+      payload:q
+    };
+  }
+
+  async function syncQuestionRelations(questionId,q,userId){
+    let result=await cloud.from('question_options').delete().eq('question_id',questionId);
+    if(result.error)throw result.error;
+    const options=(q.options||[]).filter(o=>String(o.text||'').trim()).map((o,i)=>({owner_id:userId,question_id:questionId,position:i+1,label:o.letter||OPTION_LETTERS[i]||String(i+1),body:o.text}));
+    if(options.length){result=await cloud.from('question_options').insert(options);if(result.error)throw result.error;}
+    result=await cloud.from('question_tags').delete().eq('question_id',questionId);
+    if(result.error)throw result.error;
+    for(const rawName of (q.tags||[])){
+      const name=String(rawName||'').trim();if(!name)continue;
+      const tagResult=await cloud.from('tags').upsert({owner_id:userId,name},{onConflict:'owner_id,name'}).select('id').single();
+      if(tagResult.error)throw tagResult.error;
+      const linkResult=await cloud.from('question_tags').insert({owner_id:userId,question_id:questionId,tag_id:tagResult.data.id});
+      if(linkResult.error)throw linkResult.error;
+    }
+  }
+
+  async function uploadCatalogToCloud(){
+    if(!currentCloudUser||cloudSyncBusy)return;
+    cloudSyncBusy=true;cloudStatus.textContent='Сохранение…';
+    try{
+      const existing=await cloud.from('questions').select('id,legacy_id');
+      if(existing.error)throw existing.error;
+      const localIds=new Set(questions.map(q=>q.id));
+      const stale=(existing.data||[]).filter(row=>!localIds.has(row.legacy_id)).map(row=>row.id);
+      if(stale.length){const del=await cloud.from('questions').delete().in('id',stale);if(del.error)throw del.error;}
+      for(const q of questions){
+        const saved=await cloud.from('questions').upsert(cloudQuestionRow(q,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();
+        if(saved.error)throw saved.error;
+        await syncQuestionRelations(saved.data.id,q,currentCloudUser);
+      }
+      cloudStatus.textContent='Синхронизировано';
+      localStorage.setItem('ort_cloud_last_sync',new Date().toISOString());
+    }catch(error){
+      console.error(error);cloudStatus.textContent='Ошибка синхронизации';
+    }finally{cloudSyncBusy=false;}
+  }
+
+  function scheduleCloudSync(){
+    if(!cloudReady||!currentCloudUser)return;
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer=setTimeout(uploadCatalogToCloud,700);
+  }
+
+  async function initializeCloudCatalog(user){
+    try{
+      const result=await cloud.from('questions').select('legacy_id,seq,payload').order('seq',{ascending:true});
+      if(result.error)throw result.error;
+      const rows=result.data||[];
+      if(rows.length){
+        questions=rows.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
+        localStorage.setItem(STORAGE_KEY,JSON.stringify(questions));
+        localStorage.setItem(SEQ_KEY,String(Math.max(0,...questions.map(q=>Number(q.seq)||0))));
+        customTags=Array.from(new Set(questions.flatMap(q=>q.tags||[])));
+        saveCustomTags();
+        cloudReady=true;cloudStatus.textContent='Синхронизировано';render();
+        return;
+      }
+      cloudReady=true;
+      if(questions.length){
+        const ok=confirm(`В общей базе пока нет вопросов. Перенести туда локальные карточки: ${questions.length}? Локальная копия останется в браузере.`);
+        if(ok)await uploadCatalogToCloud();else cloudStatus.textContent='Только локально';
+      }else cloudStatus.textContent='База подключена';
+    }catch(error){
+      console.error(error);cloudReady=false;cloudStatus.textContent='Ошибка подключения базы';
+    }
+  }
+
   function validateQuestion(q){
     const issues=[], critical=[];
     if(!String(q.question||'').trim()){critical.push('Нет текста вопроса');}
@@ -1026,7 +1132,7 @@
     try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
     catch(e){ return []; }
   }
-  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(questions)); }
+  function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(questions)); scheduleCloudSync(); }
   function nextSeq(){
     let n = parseInt(localStorage.getItem(SEQ_KEY) || '0', 10) + 1;
     localStorage.setItem(SEQ_KEY, String(n));

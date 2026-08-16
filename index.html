@@ -673,7 +673,11 @@
   .teacher-readonly #btnMenu,.teacher-readonly [data-erase],.teacher-readonly #createCloudSnapshot,
   .teacher-readonly #btnAddGroup,.teacher-readonly #addStudent,.teacher-readonly #addLesson,
   .teacher-readonly #generateLessons,.teacher-readonly #openGroupSettings{display:none!important}
-  .teacher-readonly .mark-cell{pointer-events:none}.teacher-readonly .lesson-editor input,.teacher-readonly .lesson-editor select,.teacher-readonly .lesson-editor textarea{pointer-events:none;background:#f3f1e9}
+  .teacher-readonly .mark-cell,.teacher-readonly [data-mark],.teacher-readonly [data-homework],.teacher-readonly [data-edit-lesson]{pointer-events:none}
+  .teacher-readonly .lesson-editor input,.teacher-readonly .lesson-editor select,.teacher-readonly .lesson-editor textarea{pointer-events:none;background:#f3f1e9}
+  .teacher-readonly #groupDetailPage input,.teacher-readonly #groupDetailPage select,.teacher-readonly #groupDetailPage textarea{pointer-events:none;background:#f3f1e9}
+  .teacher-readonly #studentsView>.inline-form{display:none!important}
+  .teacher-readonly #groupsView>.inline-form,.teacher-readonly #groupsView .archive-switch{display:none!important}
   @media(max-width:800px){.users-grid{grid-template-columns:1fr}.user-card{flex-direction:column}.user-card .action-row{width:100%}}
 </style>
 </head>
@@ -986,6 +990,7 @@
   let currentMember = null;
   let isWorkspaceOwner = false;
   let heartbeatTimer = null;
+  let readonlyObserver = null;
   let cloudReady = false;
   let cloudSyncTimer = null;
   let cloudSyncBusy = false;
@@ -1016,10 +1021,30 @@
     authRole.textContent=isWorkspaceOwner?'Мастер':'Просмотр';
     document.body.classList.toggle('teacher-readonly',!isWorkspaceOwner);
     ['btnMenu','btnExport','btnImportTrigger','btnAdd','btnAddEmpty'].forEach(id=>{const el=document.getElementById(id);if(el)el.hidden=!isWorkspaceOwner;});
+    if(isWorkspaceOwner){
+      readonlyObserver?.disconnect();readonlyObserver=null;
+      document.querySelectorAll('[data-readonly-hidden="1"]').forEach(el=>{el.hidden=false;delete el.dataset.readonlyHidden;});
+    }
     if(!isWorkspaceOwner){
       const catalog=document.getElementById('catalogView');
       if(catalog&&!document.getElementById('readonlyBanner'))catalog.insertAdjacentHTML('afterbegin','<div class="readonly-banner" id="readonlyBanner">Режим преподавателя: данные доступны только для просмотра. Изменение и удаление защищены сервером.</div>');
+      applyReadOnlyControls();
+      readonlyObserver?.disconnect();readonlyObserver=new MutationObserver(()=>applyReadOnlyControls());readonlyObserver.observe(document.getElementById('app'),{childList:true,subtree:true});
     }else document.getElementById('readonlyBanner')?.remove();
+  }
+
+  function hideReadonlyElement(el){if(!el||el.hidden)return;el.hidden=true;el.dataset.readonlyHidden='1';}
+  function applyReadOnlyControls(){
+    if(isWorkspaceOwner)return;
+    ['generator','data','guide','users'].forEach(view=>hideReadonlyElement(document.querySelector('.nav-tab[data-view="'+view+'"]')));
+    ['btnArchive','btnTrash','toggleBulkMode','btnAddEmpty','btnAddGroup','addStudent','addLesson','generateLessons','openGroupSettings','saveLessonEdit','deleteLesson','deleteStudent','createCloudSnapshot','gdSave','gdArchive','gdAddStudent','gdLoadSource','gdTransferBox'].forEach(id=>hideReadonlyElement(document.getElementById(id)));
+    hideReadonlyElement(document.getElementById('attDate')?.closest('.f'));
+    document.querySelectorAll('#app [data-erase],#app [data-delete-sitting],#app [data-void-test],#app [data-cancel-test],#app .add-to-source,#app .source-new').forEach(hideReadonlyElement);
+    const forbidden=/^(добавить|создать|сохранить|изменить|редактировать|переименовать|удалить|архивировать|в архив|вернуть|восстановить|выбыл|в группу|перевести|перенести|отменить|аннулировать|записать|занести|зафиксировать|дублировать|заполнить|настройки группы|применить)/i;
+    document.querySelectorAll('#app button').forEach(button=>{
+      if(button.closest('.auth-user')||button.classList.contains('nav-tab'))return;
+      const text=button.textContent.trim().replace(/^[^a-zа-яё0-9]+/i,'');if(forbidden.test(text))hideReadonlyElement(button);
+    });
   }
 
   async function recordSessionEvent(event){

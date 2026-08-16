@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Банк заданий ОРТ</title>
+<title>Банк заданий ОРТ · Облачный вход</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -636,8 +636,34 @@
     .a4-preview-sheet{ zoom:.42; }
   }
 </style>
+<style>
+  .auth-gate{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(32,41,29,.78);backdrop-filter:blur(8px)}
+  .auth-gate[hidden]{display:none}
+  .auth-card{width:min(430px,100%);background:var(--paper-raised);border:1px solid var(--line);box-shadow:0 24px 80px rgba(0,0,0,.28);padding:30px}
+  .auth-card h2{margin:4px 0 8px;font-family:'Fraunces',serif;font-size:30px;color:var(--green-deep)}
+  .auth-card p{color:var(--ink-soft);line-height:1.5}
+  .auth-card label{display:block;margin:20px 0 7px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  .auth-card input{width:100%;padding:12px;border:1px solid var(--line);background:#fff;font:inherit}
+  .auth-card .btn{width:100%;margin-top:12px}
+  .auth-message{min-height:22px;margin-top:12px;font-size:13px}
+  .auth-message.error{color:var(--error)}
+  .auth-user{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:12px;color:var(--ink-soft)}
+  .auth-user[hidden]{display:none}
+  @media(max-width:700px){.auth-user span{display:none}.auth-card{padding:22px}}
+</style>
 </head>
 <body>
+<div class="auth-gate" id="authGate">
+  <div class="auth-card">
+    <p class="eyebrow">Защищённый вход</p>
+    <h2>Банк заданий ОРТ</h2>
+    <p>Введите email. Мы отправим одноразовую ссылку для входа — пароль не нужен.</p>
+    <label for="authEmail">Email</label>
+    <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com">
+    <button class="btn primary" id="authSend" type="button">Получить ссылку для входа</button>
+    <div class="auth-message" id="authMessage"></div>
+  </div>
+</div>
 
 <div id="app">
   <header class="topbar">
@@ -653,6 +679,7 @@
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
     </div>
+    <div class="auth-user" id="authUser" hidden><span id="authUserEmail"></span><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
   </header>
 
   <nav class="main-nav">
@@ -903,8 +930,48 @@
 
 <div id="printArea"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js" integrity="sha384-AkNSQdptcXlJ0/NBZc4qGk86cDVXcCevwoWgEKIpHOEfbvlXGLlIkimQtONt8KNf" crossorigin="anonymous"></script>
 <script>
 (function(){
+  const SUPABASE_URL = 'https://btpyciipqprxdfrosokf.supabase.co';
+  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_71-rf8MLByz5Uf6Xet6lqw_Dds9VewV';
+  const cloud = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  const authGate = document.getElementById('authGate');
+  const authEmail = document.getElementById('authEmail');
+  const authSend = document.getElementById('authSend');
+  const authMessage = document.getElementById('authMessage');
+  const authUser = document.getElementById('authUser');
+  const authUserEmail = document.getElementById('authUserEmail');
+  const authSignOut = document.getElementById('authSignOut');
+
+  function showAuthSession(session){
+    const signedIn = !!(session && session.user);
+    authGate.hidden = signedIn;
+    authUser.hidden = !signedIn;
+    authUserEmail.textContent = signedIn ? session.user.email : '';
+  }
+
+  async function initializeAuth(){
+    const {data,error} = await cloud.auth.getSession();
+    if(error){authMessage.textContent='Не удалось проверить вход. Обновите страницу.';authMessage.classList.add('error');return;}
+    showAuthSession(data.session);
+  }
+
+  authSend.addEventListener('click', async()=>{
+    const email=authEmail.value.trim();
+    if(!email){authMessage.textContent='Введите email.';authMessage.classList.add('error');return;}
+    authSend.disabled=true;authMessage.classList.remove('error');authMessage.textContent='Отправляем письмо…';
+    const {error}=await cloud.auth.signInWithOtp({email,options:{emailRedirectTo:'https://aidardyikanbaev-coder.github.io/ort-question-bank/'}});
+    authSend.disabled=false;
+    if(error){authMessage.textContent='Не удалось отправить ссылку: '+error.message;authMessage.classList.add('error');return;}
+    authMessage.textContent='Ссылка отправлена. Откройте письмо и нажмите кнопку входа.';
+  });
+
+  authEmail.addEventListener('keydown',e=>{if(e.key==='Enter')authSend.click();});
+  authSignOut.addEventListener('click',async()=>{await cloud.auth.signOut();showAuthSession(null);});
+  cloud.auth.onAuthStateChange((_event,session)=>showAuthSession(session));
+  initializeAuth();
+
   const STORAGE_KEY = 'ort_bio_questions';
   const SEQ_KEY = 'ort_bio_seq';
   const TAGS_KEY = 'ort_bio_custom_tags';

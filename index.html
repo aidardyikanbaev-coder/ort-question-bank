@@ -954,6 +954,9 @@
   let assessmentCloudReady = false;
   let assessmentCloudSyncTimer = null;
   let assessmentCloudSyncBusy = false;
+  let attendanceCloudReady = false;
+  let attendanceCloudSyncTimer = null;
+  let attendanceCloudSyncBusy = false;
 
   function showAuthSession(session){
     const signedIn = !!(session && session.user);
@@ -1181,10 +1184,58 @@
       sittings=cloudSittings.map(row=>({...row.payload,id:row.legacy_id||row.payload.id}));
       localStorage.setItem(TESTS_KEY,JSON.stringify(genTests));localStorage.setItem(SITTINGS_KEY,JSON.stringify(sittings));
       localStorage.setItem(TEST_SEQ_KEY,String(Math.max(0,...genTests.map(t=>Number(t.seq)||0))));
-      assessmentCloudReady=true;cloudStatus.textContent='Синхронизировано';return;
+      assessmentCloudReady=true;cloudStatus.textContent='Синхронизировано';await initializeCloudAttendance();return;
     }
     assessmentCloudReady=true;
     if(genTests.length||sittings.length){const ok=confirm(`В общей базе пока нет тестов и результатов. Перенести туда локальные данные: тестов — ${genTests.length}, прохождений — ${sittings.length}? Локальная копия останется в браузере.`);if(ok)await uploadAssessmentsToCloud();}
+    await initializeCloudAttendance();
+  }
+
+  function cloudLessonRow(lesson,userId){
+    return {owner_id:userId,legacy_id:lesson.id,group_legacy_id:lesson.groupId,lesson_date:lesson.date,status:lesson.status||'planned',topic:lesson.topic||null,homework_text:lesson.homeworkText||null,teacher:lesson.teacher||null,room:lesson.room||null,comment:lesson.comment||null,payload:lesson,updated_at:new Date().toISOString()};
+  }
+
+  async function uploadAttendanceToCloud(){
+    if(!currentCloudUser||attendanceCloudSyncBusy)return;
+    attendanceCloudSyncBusy=true;cloudStatus.textContent='Сохранение журнала…';
+    try{
+      for(const lesson of attendance){
+        if(!lesson.id||!lesson.groupId||!lesson.date)continue;
+        const saved=await cloud.from('lessons').upsert(cloudLessonRow(lesson,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();
+        if(saved.error)throw saved.error;
+        const marks=Object.entries(lesson.marks||{}).map(([studentId,raw])=>{const mark=typeof raw==='string'?{status:raw,lateMinutes:null}:(raw||{});return {owner_id:currentCloudUser,legacy_id:lesson.id+':'+studentId,lesson_id:saved.data.id,student_legacy_id:studentId,status:mark.status||'',late_minutes:mark.lateMinutes==null?null:Number(mark.lateMinutes),payload:mark,updated_at:new Date().toISOString()};}).filter(mark=>mark.status);
+        if(marks.length){const markSave=await cloud.from('attendance_marks').upsert(marks,{onConflict:'owner_id,legacy_id'});if(markSave.error)throw markSave.error;}
+        const homework=Object.entries(lesson.homeworkMarks||{}).map(([studentId,status])=>({owner_id:currentCloudUser,legacy_id:lesson.id+':'+studentId,lesson_id:saved.data.id,student_legacy_id:studentId,status,payload:{status},updated_at:new Date().toISOString()})).filter(mark=>mark.status);
+        if(homework.length){const homeworkSave=await cloud.from('homework_marks').upsert(homework,{onConflict:'owner_id,legacy_id'});if(homeworkSave.error)throw homeworkSave.error;}
+      }
+      cloudStatus.textContent='Синхронизировано';
+    }catch(error){console.error(error);cloudStatus.textContent='Ошибка синхронизации журнала';}
+    finally{attendanceCloudSyncBusy=false;}
+  }
+
+  function scheduleAttendanceCloudSync(){
+    if(!attendanceCloudReady||!currentCloudUser)return;
+    clearTimeout(attendanceCloudSyncTimer);
+    attendanceCloudSyncTimer=setTimeout(uploadAttendanceToCloud,700);
+  }
+
+  async function initializeCloudAttendance(){
+    const lessonResult=await cloud.from('lessons').select('legacy_id,payload').order('lesson_date',{ascending:true});
+    if(lessonResult.error)throw lessonResult.error;
+    const cloudLessons=lessonResult.data||[];
+    if(cloudLessons.length){
+      attendance=cloudLessons.map(row=>({...row.payload,id:row.legacy_id||row.payload.id}));
+      localStorage.setItem(ATTENDANCE_KEY,JSON.stringify(attendance));
+      attendanceCloudReady=true;cloudStatus.textContent='Синхронизировано';return;
+    }
+    attendanceCloudReady=true;
+    if(attendance.length){const ok=confirm(`В общей базе пока нет занятий. Перенести туда локальный журнал: занятий — ${attendance.length}? Локальная копия останется в браузере.`);if(ok)await uploadAttendanceToCloud();}
+  }
+
+  async function deleteCloudLesson(legacyId){
+    if(!currentCloudUser||!legacyId)return;
+    const result=await cloud.from('lessons').delete().eq('legacy_id',legacyId);
+    if(result.error){console.error(result.error);cloudStatus.textContent='Ошибка удаления занятия';}
   }
 
   async function initializeCloudCatalog(user){
@@ -2008,7 +2059,7 @@
   const ATTENDANCE_KEY='ort_bio_attendance';
   let attendance=loadAttendance();
   function loadAttendance(){try{return JSON.parse(localStorage.getItem(ATTENDANCE_KEY))||[];}catch(e){return[];}}
-  function saveAttendance(){localStorage.setItem(ATTENDANCE_KEY,JSON.stringify(attendance));}
+  function saveAttendance(){localStorage.setItem(ATTENDANCE_KEY,JSON.stringify(attendance));scheduleAttendanceCloudSync();}
 
   function questionById(id){ return questions.find(q => q.id === id); }
   function usedQuestionIdsForGroup(groupId){
@@ -2440,7 +2491,7 @@
     document.querySelectorAll('[data-edit-lesson]').forEach(x=>x.onclick=()=>{editedLessonId=x.dataset.editLesson;renderAttendanceView();});
     document.querySelectorAll('[data-mark]').forEach(b=>b.onclick=()=>{const l=attendance.find(x=>x.id===b.dataset.mark),old=markData(l,b.dataset.student),cycle=['','present','absent','excused','late'],status=cycle[(cycle.indexOf(old.status)+1)%cycle.length];let lateMinutes=null;if(status==='late'){const v=prompt('На сколько минут опоздал ученик?','5');if(v===null)return;lateMinutes=Math.max(0,parseInt(v,10)||0);}l.marks=l.marks||{};if(status)l.marks[b.dataset.student]={status,lateMinutes};else delete l.marks[b.dataset.student];saveAttendance();renderAttendanceView();});
     document.querySelectorAll('[data-homework]').forEach(b=>b.onclick=()=>{const l=attendance.find(x=>x.id===b.dataset.homework),cycle=['','done','notdone','partial','excused'],old=(l.homeworkMarks||{})[b.dataset.student]||'',v=cycle[(cycle.indexOf(old)+1)%cycle.length];l.homeworkMarks=l.homeworkMarks||{};if(v)l.homeworkMarks[b.dataset.student]=v;else delete l.homeworkMarks[b.dataset.student];saveAttendance();renderAttendanceView();});
-    if(edited){document.getElementById('saveLessonEdit').onclick=()=>{edited.date=document.getElementById('leDate').value;edited.status=document.getElementById('leStatus').value;edited.topic=document.getElementById('leTopic').value.trim();edited.homeworkText=document.getElementById('leHomework').value.trim();edited.room=document.getElementById('leRoom').value.trim();edited.teacher=document.getElementById('leTeacher').value.trim();edited.comment=document.getElementById('leComment').value.trim();saveAttendance();editedLessonId=null;renderAttendanceView();};document.getElementById('closeLessonEdit').onclick=()=>{editedLessonId=null;renderAttendanceView();};document.getElementById('deleteLesson').onclick=()=>{if(confirm('Удалить занятие и все отметки за этот день?')){attendance=attendance.filter(a=>a.id!==edited.id);saveAttendance();editedLessonId=null;renderAttendanceView();}};}
+    if(edited){document.getElementById('saveLessonEdit').onclick=()=>{edited.date=document.getElementById('leDate').value;edited.status=document.getElementById('leStatus').value;edited.topic=document.getElementById('leTopic').value.trim();edited.homeworkText=document.getElementById('leHomework').value.trim();edited.room=document.getElementById('leRoom').value.trim();edited.teacher=document.getElementById('leTeacher').value.trim();edited.comment=document.getElementById('leComment').value.trim();saveAttendance();editedLessonId=null;renderAttendanceView();};document.getElementById('closeLessonEdit').onclick=()=>{editedLessonId=null;renderAttendanceView();};document.getElementById('deleteLesson').onclick=()=>{if(confirm('Удалить занятие и все отметки за этот день?')){deleteCloudLesson(edited.id);attendance=attendance.filter(a=>a.id!==edited.id);saveAttendance();editedLessonId=null;renderAttendanceView();}};}
   }
 
   // ============ TEST GENERATOR VIEW ============

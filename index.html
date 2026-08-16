@@ -1015,8 +1015,9 @@
   let activeSourceFilter = null;
   questions.forEach(q=>{ if(!q.status) q.status=q.disputed?'disputed':'draft'; if(q.deletedAt===undefined) q.deletedAt=null; });
 
-  function cloudQuestionRow(q,userId){
+  function cloudQuestionRow(q,userId,imagePath){
     const correct=(q.options||[]).findIndex(o=>o.correct&&String(o.text||'').trim());
+    const payload={...q,image:null,cloudImagePath:imagePath||null};
     return {
       owner_id:userId,
       legacy_id:q.id,
@@ -1027,7 +1028,7 @@
       difficulty:Number(q.difficulty)||null,
       status:q.status||'draft',
       correct_option_position:correct>=0?correct+1:null,
-      image_path:null,
+      image_path:imagePath||null,
       archived_at:q.status==='archived'?(q.archivedAt||new Date().toISOString()):null,
       deleted_at:q.deletedAt||null,
       created_at:q.createdAt||new Date().toISOString(),
@@ -1038,8 +1039,31 @@
       source_test:q.sourceTest||null,
       source_index:q.sourceIndex||null,
       source_comment:q.sourceComment||null,
-      payload:q
+      payload
     };
+  }
+
+  function dataUrlBlob(dataUrl){
+    const match=String(dataUrl||'').match(/^data:([^;,]+);base64,(.+)$/);if(!match)return null;
+    const bytes=atob(match[2]),buffer=new Uint8Array(bytes.length);for(let i=0;i<bytes.length;i++)buffer[i]=bytes.charCodeAt(i);
+    return {blob:new Blob([buffer],{type:match[1]}),mime:match[1]};
+  }
+
+  async function syncQuestionImage(q,userId){
+    const encoded=dataUrlBlob(q.image);
+    if(encoded){
+      const ext=encoded.mime==='image/png'?'png':encoded.mime==='image/jpeg'?'jpg':'webp';
+      const path=userId+'/'+q.id+'.'+ext;
+      const result=await cloud.storage.from('question-images').upload(path,encoded.blob,{contentType:encoded.mime,cacheControl:'3600',upsert:true});
+      if(result.error)throw result.error;q.cloudImagePath=path;return path;
+    }
+    if(q.image&&q.cloudImagePath)return q.cloudImagePath;
+    if(!q.image&&q.cloudImagePath){const result=await cloud.storage.from('question-images').remove([q.cloudImagePath]);if(result.error)throw result.error;q.cloudImagePath=null;}
+    return q.cloudImagePath||null;
+  }
+
+  async function hydrateQuestionImages(list){
+    await Promise.all(list.map(async q=>{if(q.image||!q.cloudImagePath)return;const result=await cloud.storage.from('question-images').createSignedUrl(q.cloudImagePath,604800);if(result.error)throw result.error;q.image=result.data.signedUrl;}));
   }
 
   async function syncQuestionRelations(questionId,q,userId){
@@ -1068,7 +1092,8 @@
       const stale=(existing.data||[]).filter(row=>!localIds.has(row.legacy_id)).map(row=>row.id);
       if(stale.length){const del=await cloud.from('questions').delete().in('id',stale);if(del.error)throw del.error;}
       for(const q of questions){
-        const saved=await cloud.from('questions').upsert(cloudQuestionRow(q,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();
+        const imagePath=await syncQuestionImage(q,currentCloudUser);
+        const saved=await cloud.from('questions').upsert(cloudQuestionRow(q,currentCloudUser,imagePath),{onConflict:'owner_id,legacy_id'}).select('id').single();
         if(saved.error)throw saved.error;
         await syncQuestionRelations(saved.data.id,q,currentCloudUser);
       }
@@ -1245,6 +1270,7 @@
       const rows=result.data||[];
       if(rows.length){
         questions=rows.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
+        await hydrateQuestionImages(questions);
         localStorage.setItem(STORAGE_KEY,JSON.stringify(questions));
         localStorage.setItem(SEQ_KEY,String(Math.max(0,...questions.map(q=>Number(q.seq)||0))));
         customTags=Array.from(new Set(questions.flatMap(q=>q.tags||[])));

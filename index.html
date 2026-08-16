@@ -951,6 +951,9 @@
   let peopleCloudReady = false;
   let peopleCloudSyncTimer = null;
   let peopleCloudSyncBusy = false;
+  let assessmentCloudReady = false;
+  let assessmentCloudSyncTimer = null;
+  let assessmentCloudSyncBusy = false;
 
   function showAuthSession(session){
     const signedIn = !!(session && session.user);
@@ -1125,10 +1128,63 @@
       students=cloudStudents.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
       localStorage.setItem(GROUPS_KEY,JSON.stringify(groups));localStorage.setItem(STUDENTS_KEY,JSON.stringify(students));
       localStorage.setItem(GROUP_SEQ_KEY,String(Math.max(0,...groups.map(g=>Number(g.seq)||0))));localStorage.setItem(STUDENT_SEQ_KEY,String(Math.max(0,...students.map(s=>Number(s.seq)||0))));
-      peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';return;
+      peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';await initializeCloudAssessments();return;
     }
     peopleCloudReady=true;
     if(groups.length||students.length){const ok=confirm(`В общей базе пока нет групп и учеников. Перенести туда локальные данные: групп — ${groups.length}, учеников — ${students.length}? Локальная копия останется в браузере.`);if(ok)await uploadPeopleToCloud();}
+    await initializeCloudAssessments();
+  }
+
+  function cloudGeneratedTestRow(t,userId){
+    return {owner_id:userId,legacy_id:t.id,seq:Number(t.seq)||null,name:t.name||'',group_legacy_id:t.groupId||null,mode:t.mode||null,preset:t.preset||null,variant_of_legacy_id:t.variantOf||null,variant_label:t.variantLabel||null,voided:!!t.voided,payload:t,created_at:t.createdAt||new Date().toISOString(),updated_at:new Date().toISOString()};
+  }
+
+  async function uploadAssessmentsToCloud(){
+    if(!currentCloudUser||assessmentCloudSyncBusy)return;
+    assessmentCloudSyncBusy=true;cloudStatus.textContent='Сохранение тестов и результатов…';
+    try{
+      const testMap=new Map();
+      for(const t of genTests){
+        const saved=await cloud.from('generated_tests').upsert(cloudGeneratedTestRow(t,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();
+        if(saved.error)throw saved.error;testMap.set(t.id,saved.data.id);
+        const items=(t.items||[]).map((item,index)=>({owner_id:currentCloudUser,legacy_id:t.id+':'+(index+1),generated_test_id:saved.data.id,question_legacy_id:item.questionId,position:index+1,payload:item,updated_at:new Date().toISOString()}));
+        if(items.length){const itemResult=await cloud.from('generated_test_items').upsert(items,{onConflict:'owner_id,legacy_id'});if(itemResult.error)throw itemResult.error;}
+      }
+      const sittingMap=new Map();
+      for(const sitting of sittings){
+        const testId=testMap.get(sitting.generatedTestId);if(!testId)continue;
+        const saved=await cloud.from('test_sittings').upsert({owner_id:currentCloudUser,legacy_id:sitting.id,generated_test_id:testId,group_legacy_id:sitting.groupId||null,sitting_date:sitting.date||null,payload:sitting,updated_at:new Date().toISOString()},{onConflict:'owner_id,legacy_id'}).select('id').single();
+        if(saved.error)throw saved.error;sittingMap.set(sitting.id,saved.data.id);
+        const results=(sitting.results||[]).map((result,index)=>({owner_id:currentCloudUser,legacy_id:sitting.id+':'+(index+1),sitting_id:saved.data.id,student_legacy_id:result.studentId||null,student_name:result.studentName||'',score_percent:Number.isFinite(Number(result.scorePercent))?Number(result.scorePercent):null,correct_count:result.correctCount==null?null:Number(result.correctCount),total_count:result.totalCount==null?null:Number(result.totalCount),payload:result,updated_at:new Date().toISOString()}));
+        if(results.length){const resultSave=await cloud.from('test_results').upsert(results,{onConflict:'owner_id,legacy_id'});if(resultSave.error)throw resultSave.error;}
+      }
+      cloudStatus.textContent='Синхронизировано';
+    }catch(error){console.error(error);cloudStatus.textContent='Ошибка синхронизации тестов';}
+    finally{assessmentCloudSyncBusy=false;}
+  }
+
+  function scheduleAssessmentCloudSync(){
+    if(!assessmentCloudReady||!currentCloudUser)return;
+    clearTimeout(assessmentCloudSyncTimer);
+    assessmentCloudSyncTimer=setTimeout(uploadAssessmentsToCloud,700);
+  }
+
+  async function initializeCloudAssessments(){
+    const [testResult,sittingResult]=await Promise.all([
+      cloud.from('generated_tests').select('legacy_id,seq,payload').order('seq',{ascending:true}),
+      cloud.from('test_sittings').select('legacy_id,payload').order('sitting_date',{ascending:true})
+    ]);
+    if(testResult.error)throw testResult.error;if(sittingResult.error)throw sittingResult.error;
+    const cloudTests=testResult.data||[],cloudSittings=sittingResult.data||[];
+    if(cloudTests.length||cloudSittings.length){
+      genTests=cloudTests.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
+      sittings=cloudSittings.map(row=>({...row.payload,id:row.legacy_id||row.payload.id}));
+      localStorage.setItem(TESTS_KEY,JSON.stringify(genTests));localStorage.setItem(SITTINGS_KEY,JSON.stringify(sittings));
+      localStorage.setItem(TEST_SEQ_KEY,String(Math.max(0,...genTests.map(t=>Number(t.seq)||0))));
+      assessmentCloudReady=true;cloudStatus.textContent='Синхронизировано';return;
+    }
+    assessmentCloudReady=true;
+    if(genTests.length||sittings.length){const ok=confirm(`В общей базе пока нет тестов и результатов. Перенести туда локальные данные: тестов — ${genTests.length}, прохождений — ${sittings.length}? Локальная копия останется в браузере.`);if(ok)await uploadAssessmentsToCloud();}
   }
 
   async function initializeCloudCatalog(user){
@@ -1945,10 +2001,10 @@
   let genTests = loadTests();
   let sittings = loadSittings();
   function loadTests(){ try{ return JSON.parse(localStorage.getItem(TESTS_KEY)) || []; }catch(e){ return []; } }
-  function saveTests(){ localStorage.setItem(TESTS_KEY, JSON.stringify(genTests)); }
+  function saveTests(){ localStorage.setItem(TESTS_KEY, JSON.stringify(genTests)); scheduleAssessmentCloudSync(); }
   function nextTestSeq(){ let n = parseInt(localStorage.getItem(TEST_SEQ_KEY)||'0',10)+1; localStorage.setItem(TEST_SEQ_KEY,String(n)); return n; }
   function loadSittings(){ try{ return JSON.parse(localStorage.getItem(SITTINGS_KEY)) || []; }catch(e){ return []; } }
-  function saveSittings(){ localStorage.setItem(SITTINGS_KEY, JSON.stringify(sittings)); }
+  function saveSittings(){ localStorage.setItem(SITTINGS_KEY, JSON.stringify(sittings)); scheduleAssessmentCloudSync(); }
   const ATTENDANCE_KEY='ort_bio_attendance';
   let attendance=loadAttendance();
   function loadAttendance(){try{return JSON.parse(localStorage.getItem(ATTENDANCE_KEY))||[];}catch(e){return[];}}

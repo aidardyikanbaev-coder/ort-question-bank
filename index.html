@@ -684,8 +684,8 @@
     <p class="eyebrow">Защищённый вход</p>
     <h2>Банк заданий ОРТ</h2>
     <p>Вход доступен только пользователям, аккаунты которых создал мастер.</p>
-    <label for="authEmail">Email</label>
-    <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com">
+    <label for="authEmail">Логин или email мастера</label>
+    <input id="authEmail" type="text" autocomplete="username" placeholder="Например: aigul">
     <label for="authPassword">Пароль</label>
     <input id="authPassword" type="password" autocomplete="current-password" placeholder="Не менее 6 символов">
     <button class="btn primary" id="authPasswordSignIn" type="button">Войти</button>
@@ -709,7 +709,7 @@
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
     </div>
-    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><b class="role-badge" id="authRole"></b><button class="btn ghost" id="authSetPassword" type="button">Изменить пароль</button><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
+    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><b class="role-badge" id="authRole"></b><button class="btn ghost" id="authContactEmail" type="button">Мой email</button><button class="btn ghost" id="authSetPassword" type="button">Изменить пароль</button><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
   </header>
 
   <nav class="main-nav">
@@ -977,6 +977,7 @@
   const authUser = document.getElementById('authUser');
   const authUserEmail = document.getElementById('authUserEmail');
   const authRole = document.getElementById('authRole');
+  const authContactEmail = document.getElementById('authContactEmail');
   const authSetPassword = document.getElementById('authSetPassword');
   const authSignOut = document.getElementById('authSignOut');
   const cloudStatus = document.getElementById('cloudStatus');
@@ -1004,6 +1005,11 @@
     if(data&&data.error)throw new Error(data.error);
     return data;
   }
+  function loginToAuthEmail(value){
+    const login=String(value||'').trim().toLowerCase();
+    if(login==='aidardyikanbaev')return 'aidardyikanbaev@gmail.com';
+    return login.includes('@')?login:login+'@accounts.ort-bank.app';
+  }
 
   function applyRoleUi(){
     document.getElementById('usersNav').hidden=!isWorkspaceOwner;
@@ -1021,7 +1027,7 @@
   }
   async function trackActivity(view){
     if(!currentCloudUser||!currentWorkspaceOwner||!currentMember)return;
-    try{await cloud.from('activity_events').insert({workspace_owner_id:currentWorkspaceOwner,actor_user_id:currentCloudUser,actor_email:currentMember.email,event_type:'activity',details:{view}});}catch(error){console.error(error);}
+    try{await cloud.from('activity_events').insert({workspace_owner_id:currentWorkspaceOwner,actor_user_id:currentCloudUser,actor_email:currentMember.username||currentMember.contact_email||currentMember.email,event_type:'activity',details:{view}});}catch(error){console.error(error);}
   }
 
   async function showAuthSession(session){
@@ -1031,7 +1037,7 @@
     }
     if(currentCloudUser===session.user.id&&currentMember){authGate.hidden=true;authUser.hidden=false;return;}
     authGate.hidden=false;authUser.hidden=true;authMessage.classList.remove('error');authMessage.textContent='Проверяем разрешение мастера…';
-    const memberResult=await cloud.from('app_members').select('user_id,workspace_owner_id,email,display_name,role,status').eq('user_id',session.user.id).maybeSingle();
+    const memberResult=await cloud.from('app_members').select('user_id,workspace_owner_id,email,username,contact_email,display_name,role,status').eq('user_id',session.user.id).maybeSingle();
     if(memberResult.error||!memberResult.data||memberResult.data.status!=='active'){
       currentCloudUser=null;currentMember=null;await cloud.auth.signOut({scope:'local'});
       authMessage.textContent='Доступ не разрешён. Попросите мастера создать или включить ваш аккаунт.';authMessage.classList.add('error');return;
@@ -1041,7 +1047,7 @@
     currentWorkspaceOwner=currentMember.workspace_owner_id;
     isWorkspaceOwner=currentMember.role==='owner'&&currentMember.user_id===currentMember.workspace_owner_id;
     authGate.hidden=true;authUser.hidden=false;authMessage.textContent='';
-    authUserEmail.textContent=session.user.email||currentMember.email;
+    authUserEmail.textContent=currentMember.username||currentMember.contact_email||session.user.email||currentMember.email;
     applyRoleUi();
     if(!sessionStorage.getItem('ort_session_logged_'+session.user.id)){
       recordSessionEvent('sign_in');sessionStorage.setItem('ort_session_logged_'+session.user.id,'1');
@@ -1071,13 +1077,13 @@
   });
 
   authPasswordSignIn.addEventListener('click',async()=>{
-    const email=authEmail.value.trim();
+    const login=authEmail.value.trim();
     const password=authPassword.value;
-    if(!email||!password){authMessage.textContent='Введите email и пароль.';authMessage.classList.add('error');return;}
+    if(!login||!password){authMessage.textContent='Введите логин и пароль.';authMessage.classList.add('error');return;}
     authPasswordSignIn.disabled=true;authMessage.classList.remove('error');authMessage.textContent='Входим…';
-    const {error}=await cloud.auth.signInWithPassword({email,password});
+    const {error}=await cloud.auth.signInWithPassword({email:loginToAuthEmail(login),password});
     authPasswordSignIn.disabled=false;
-    if(error){authMessage.textContent='Не удалось войти. Проверьте email и пароль.';authMessage.classList.add('error');return;}
+    if(error){authMessage.textContent='Не удалось войти. Проверьте логин и пароль.';authMessage.classList.add('error');return;}
     authMessage.textContent='';authPassword.value='';
   });
 
@@ -1093,6 +1099,14 @@
     authSetPassword.disabled=false;authSetPassword.textContent='Изменить пароль';
     if(error){alert('Не удалось сохранить пароль: '+error.message);return;}
     alert('Пароль сохранён. Теперь можно входить по email и паролю.');
+  });
+
+  authContactEmail.addEventListener('click',async()=>{
+    const value=prompt('Контактный email для будущих уведомлений. Можно оставить пустым.',currentMember&&currentMember.contact_email||'');
+    if(value===null)return;
+    authContactEmail.disabled=true;
+    try{const data=await invokeUserAdmin({action:'update_profile',contact_email:value.trim()});currentMember.contact_email=data.contact_email;alert(data.contact_email?'Email сохранён.':'Контактный email удалён.');}
+    catch(error){alert(error.message);}finally{authContactEmail.disabled=false;}
   });
 
   authEmail.addEventListener('keydown',e=>{if(e.key==='Enter')authPasswordSignIn.click();});
@@ -2324,9 +2338,11 @@
         <div>
           <div class="data-card">
             <h3>Создать преподавателя</h3>
-            <p class="section-hint">Самостоятельной регистрации нет. Сообщите преподавателю email и временный пароль лично.</p>
+            <p class="section-hint">Самостоятельной регистрации нет. Сообщите преподавателю логин и временный пароль лично.</p>
             <div class="f"><label>Имя</label><input id="newUserName" placeholder="Например: Айгуль"></div>
-            <div class="f"><label>Email</label><input id="newUserEmail" type="email" autocomplete="off" placeholder="teacher@example.com"></div>
+            <div class="f"><label>Логин</label><input id="newUsername" type="text" autocomplete="off" placeholder="Например: aigul"></div>
+            <p class="section-hint">Только латинские буквы, цифры, точка, дефис или подчёркивание.</p>
+            <div class="f"><label>Контактный email — необязательно</label><input id="newUserContactEmail" type="email" autocomplete="off" placeholder="teacher@example.com"></div>
             <div class="f"><label>Временный пароль</label><input id="newUserPassword" type="text" autocomplete="off" placeholder="Не менее 6 символов"></div>
             <div class="action-row" style="margin-top:12px"><button class="btn" id="generateUserPassword">Придумать пароль</button><button class="btn primary" id="createUserAccount">Создать аккаунт</button></div>
             <p class="auth-message" id="createUserStatus"></p>
@@ -2335,23 +2351,23 @@
             <h3>Пользователи · ${members.length}</h3>
             <div id="membersList">${members.map(m=>`
               <div class="user-card">
-                <div><b>${escapeHtml(m.display_name||m.email)}</b> <span class="role-badge">${m.role==='owner'?'Мастер':'Просмотр'}</span>
-                <small>${escapeHtml(m.email)}<br>Статус: ${m.status==='active'?'доступ разрешён':'доступ отключён'}<br>Последняя активность: ${formatActivityTime(m.last_seen_at)}<br>Последний вход: ${formatActivityTime(m.last_sign_in_at)}</small></div>
+                <div><b>${escapeHtml(m.display_name||m.username||m.email)}</b> <span class="role-badge">${m.role==='owner'?'Мастер':'Просмотр'}</span>
+                <small>Логин: ${escapeHtml(m.username||m.email)}<br>Email: ${escapeHtml(m.contact_email||'не указан')}<br>Статус: ${m.status==='active'?'доступ разрешён':'доступ отключён'}<br>Последняя активность: ${formatActivityTime(m.last_seen_at)}<br>Последний вход: ${formatActivityTime(m.last_sign_in_at)}</small></div>
                 ${m.role==='teacher'?'<div class="action-row"><button class="btn ghost" data-reset-password="'+m.user_id+'">Новый пароль</button><button class="btn '+(m.status==='active'?'danger-text':'primary')+'" data-user-status="'+m.user_id+'" data-next-status="'+(m.status==='active'?'disabled':'active')+'">'+(m.status==='active'?'Отключить':'Включить')+'</button></div>':''}
               </div>`).join('')}</div>
           </div>
         </div>
         <div class="data-card">
           <div class="section-head"><div><h3>Журнал активности</h3><p>Входы, выходы и действия с аккаунтами.</p></div><button class="btn ghost" id="refreshUsers">Обновить</button></div>
-          <div>${events.length?events.map(e=>`<div class="audit-line"><b>${escapeHtml(activityLabel(e.event_type))}</b> · ${escapeHtml(e.actor_email)}<small>${formatActivityTime(e.occurred_at)}${e.details&&e.details.target_email?' · пользователь: '+escapeHtml(e.details.target_email):''}${e.details&&e.details.view?' · раздел: '+escapeHtml((viewTitles[e.details.view]||[e.details.view])[0]):''}</small></div>`).join(''):'<p class="manage-empty">Событий пока нет.</p>'}</div>
+          <div>${events.length?events.map(e=>`<div class="audit-line"><b>${escapeHtml(activityLabel(e.event_type))}</b> · ${escapeHtml(e.actor_email)}<small>${formatActivityTime(e.occurred_at)}${e.details&&e.details.target_login?' · пользователь: '+escapeHtml(e.details.target_login):e.details&&e.details.target_email?' · пользователь: '+escapeHtml(e.details.target_email):''}${e.details&&e.details.view?' · раздел: '+escapeHtml((viewTitles[e.details.view]||[e.details.view])[0]):''}</small></div>`).join(''):'<p class="manage-empty">Событий пока нет.</p>'}</div>
         </div>
       </div>`;
     document.getElementById('generateUserPassword').onclick=()=>{document.getElementById('newUserPassword').value='Ort-'+Math.random().toString(36).slice(2,8)+'!'+Math.floor(10+Math.random()*90);};
     document.getElementById('createUserAccount').onclick=async()=>{
       const button=document.getElementById('createUserAccount'),status=document.getElementById('createUserStatus');
-      const display_name=document.getElementById('newUserName').value.trim(),email=document.getElementById('newUserEmail').value.trim(),password=document.getElementById('newUserPassword').value;
+      const display_name=document.getElementById('newUserName').value.trim(),username=document.getElementById('newUsername').value.trim(),contact_email=document.getElementById('newUserContactEmail').value.trim(),password=document.getElementById('newUserPassword').value;
       button.disabled=true;status.classList.remove('error');status.textContent='Создаём аккаунт…';
-      try{await invokeUserAdmin({action:'create',display_name,email,password});status.textContent='Аккаунт создан. Передайте преподавателю email и временный пароль.';setTimeout(renderUsersView,900);}
+      try{await invokeUserAdmin({action:'create',display_name,username,contact_email,password});alert('Аккаунт создан.\n\nЛогин: '+username.toLowerCase()+'\nВременный пароль: '+password+'\n\nСкопируйте эти данные. Позже пароль можно только заменить новым.');await renderUsersView();}
       catch(error){status.textContent=error.message;status.classList.add('error');button.disabled=false;}
     };
     document.getElementById('refreshUsers').onclick=renderUsersView;

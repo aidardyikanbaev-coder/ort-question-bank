@@ -662,6 +662,19 @@
   .network-status{position:fixed;right:12px;bottom:12px;z-index:9000;padding:7px 10px;border-radius:20px;background:#8a3b2d;color:#fff;font-size:11px;box-shadow:var(--shadow)}
   .network-status[hidden]{display:none}
   @media(max-width:700px){.auth-user span{display:none}.auth-card{padding:22px}}
+  .role-badge{padding:4px 8px;border-radius:999px;background:#e7efe3;color:var(--green-deep);font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+  .readonly-banner{margin:0 0 16px;padding:10px 14px;border:1px solid #d8c996;background:#fff8df;color:#684f00;font-size:13px}
+  .users-grid{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(360px,1.2fr);gap:18px}
+  .user-card{padding:14px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+  .user-card:last-child{border-bottom:0}.user-card small{display:block;color:var(--ink-faint);margin-top:5px;line-height:1.45}
+  .audit-line{padding:10px 0;border-bottom:1px solid var(--line);font-size:13px}.audit-line small{display:block;color:var(--ink-faint);margin-top:3px}
+  .teacher-readonly .card-actions,.teacher-readonly .add-to-source,.teacher-readonly .source-new,
+  .teacher-readonly #toggleBulkMode,.teacher-readonly #bulkBar,.teacher-readonly #btnAddEmpty,
+  .teacher-readonly #btnMenu,.teacher-readonly [data-erase],.teacher-readonly #createCloudSnapshot,
+  .teacher-readonly #btnAddGroup,.teacher-readonly #addStudent,.teacher-readonly #addLesson,
+  .teacher-readonly #generateLessons,.teacher-readonly #openGroupSettings{display:none!important}
+  .teacher-readonly .mark-cell{pointer-events:none}.teacher-readonly .lesson-editor input,.teacher-readonly .lesson-editor select,.teacher-readonly .lesson-editor textarea{pointer-events:none;background:#f3f1e9}
+  @media(max-width:800px){.users-grid{grid-template-columns:1fr}.user-card{flex-direction:column}.user-card .action-row{width:100%}}
 </style>
 </head>
 <body>
@@ -670,13 +683,13 @@
   <div class="auth-card">
     <p class="eyebrow">Защищённый вход</p>
     <h2>Банк заданий ОРТ</h2>
-    <p>Войдите по email и паролю. Одноразовая ссылка остаётся запасным способом.</p>
+    <p>Вход доступен только пользователям, аккаунты которых создал мастер.</p>
     <label for="authEmail">Email</label>
     <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com">
     <label for="authPassword">Пароль</label>
     <input id="authPassword" type="password" autocomplete="current-password" placeholder="Не менее 6 символов">
     <button class="btn primary" id="authPasswordSignIn" type="button">Войти</button>
-    <button class="btn" id="authSend" type="button">Получить одноразовую ссылку</button>
+    <button class="btn" id="authSend" type="button" hidden>Получить одноразовую ссылку</button>
     <div class="auth-message" id="authMessage"></div>
   </div>
 </div>
@@ -696,7 +709,7 @@
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
     </div>
-    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><button class="btn ghost" id="authSetPassword" type="button">Задать пароль</button><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
+    <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><b class="role-badge" id="authRole"></b><button class="btn ghost" id="authSetPassword" type="button">Изменить пароль</button><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
   </header>
 
   <nav class="main-nav">
@@ -708,6 +721,7 @@
     <button class="nav-tab" data-view="generator">Генератор тестов</button>
     <button class="nav-tab" data-view="tests">Тесты</button>
     <button class="nav-tab" data-view="data">Данные и импорт</button>
+    <button class="nav-tab" data-view="users" id="usersNav" hidden>Пользователи</button>
     <button class="nav-tab" data-view="guide">Инструкция</button>
   </nav>
 
@@ -771,6 +785,7 @@
   <section id="testsListView" hidden></section>
   <section id="dashboardView" hidden></section>
   <section id="dataView" hidden></section>
+  <section id="usersView" hidden></section>
   <section id="guideView" hidden>
     <div class="section-head"><div><h2>Как перенести тесты из Word или PDF</h2><p>Пошаговая инструкция по созданию JSON и импорту изображений.</p></div></div>
     <div class="data-card" style="margin-bottom:18px;">
@@ -961,10 +976,15 @@
   const authMessage = document.getElementById('authMessage');
   const authUser = document.getElementById('authUser');
   const authUserEmail = document.getElementById('authUserEmail');
+  const authRole = document.getElementById('authRole');
   const authSetPassword = document.getElementById('authSetPassword');
   const authSignOut = document.getElementById('authSignOut');
   const cloudStatus = document.getElementById('cloudStatus');
   let currentCloudUser = null;
+  let currentWorkspaceOwner = null;
+  let currentMember = null;
+  let isWorkspaceOwner = false;
+  let heartbeatTimer = null;
   let cloudReady = false;
   let cloudSyncTimer = null;
   let cloudSyncBusy = false;
@@ -978,24 +998,66 @@
   let attendanceCloudSyncTimer = null;
   let attendanceCloudSyncBusy = false;
 
-  function showAuthSession(session){
+  async function invokeUserAdmin(body){
+    const {data,error}=await cloud.functions.invoke('manage-users',{body});
+    if(error)throw new Error((data&&data.error)||error.message||'Ошибка серверной операции.');
+    if(data&&data.error)throw new Error(data.error);
+    return data;
+  }
+
+  function applyRoleUi(){
+    document.getElementById('usersNav').hidden=!isWorkspaceOwner;
+    authRole.textContent=isWorkspaceOwner?'Мастер':'Просмотр';
+    document.body.classList.toggle('teacher-readonly',!isWorkspaceOwner);
+    ['btnMenu','btnExport','btnImportTrigger','btnAdd','btnAddEmpty'].forEach(id=>{const el=document.getElementById(id);if(el)el.hidden=!isWorkspaceOwner;});
+    if(!isWorkspaceOwner){
+      const catalog=document.getElementById('catalogView');
+      if(catalog&&!document.getElementById('readonlyBanner'))catalog.insertAdjacentHTML('afterbegin','<div class="readonly-banner" id="readonlyBanner">Режим преподавателя: данные доступны только для просмотра. Изменение и удаление защищены сервером.</div>');
+    }else document.getElementById('readonlyBanner')?.remove();
+  }
+
+  async function recordSessionEvent(event){
+    try{return await invokeUserAdmin({action:'session',event,user_agent:navigator.userAgent});}catch(error){console.error(error);}
+  }
+  async function trackActivity(view){
+    if(!currentCloudUser||!currentWorkspaceOwner||!currentMember)return;
+    try{await cloud.from('activity_events').insert({workspace_owner_id:currentWorkspaceOwner,actor_user_id:currentCloudUser,actor_email:currentMember.email,event_type:'activity',details:{view}});}catch(error){console.error(error);}
+  }
+
+  async function showAuthSession(session){
     const signedIn = !!(session && session.user);
-    authGate.hidden = signedIn;
-    authUser.hidden = !signedIn;
-    authUserEmail.textContent = signedIn ? session.user.email : '';
-    if(signedIn && currentCloudUser !== session.user.id){
-      currentCloudUser = session.user.id;
+    if(!signedIn){
+      authGate.hidden=false;authUser.hidden=true;currentCloudUser=null;currentWorkspaceOwner=null;currentMember=null;isWorkspaceOwner=false;cloudReady=false;cloudStatus.textContent='Подключение…';clearInterval(heartbeatTimer);return;
+    }
+    if(currentCloudUser===session.user.id&&currentMember){authGate.hidden=true;authUser.hidden=false;return;}
+    authGate.hidden=false;authUser.hidden=true;authMessage.classList.remove('error');authMessage.textContent='Проверяем разрешение мастера…';
+    const memberResult=await cloud.from('app_members').select('user_id,workspace_owner_id,email,display_name,role,status').eq('user_id',session.user.id).maybeSingle();
+    if(memberResult.error||!memberResult.data||memberResult.data.status!=='active'){
+      currentCloudUser=null;currentMember=null;await cloud.auth.signOut({scope:'local'});
+      authMessage.textContent='Доступ не разрешён. Попросите мастера создать или включить ваш аккаунт.';authMessage.classList.add('error');return;
+    }
+    currentMember=memberResult.data;
+    currentCloudUser=session.user.id;
+    currentWorkspaceOwner=currentMember.workspace_owner_id;
+    isWorkspaceOwner=currentMember.role==='owner'&&currentMember.user_id===currentMember.workspace_owner_id;
+    authGate.hidden=true;authUser.hidden=false;authMessage.textContent='';
+    authUserEmail.textContent=session.user.email||currentMember.email;
+    applyRoleUi();
+    if(!sessionStorage.getItem('ort_session_logged_'+session.user.id)){
+      recordSessionEvent('sign_in');sessionStorage.setItem('ort_session_logged_'+session.user.id,'1');
+    }else recordSessionEvent('activity');
+    clearInterval(heartbeatTimer);heartbeatTimer=setInterval(()=>recordSessionEvent('activity'),300000);
+    if(cloudStatus.textContent!=='Загрузка каталога…'){
       cloudReady = false;
       cloudStatus.textContent = 'Загрузка каталога…';
       setTimeout(()=>initializeCloudCatalog(session.user),0);
     }
-    if(!signedIn){currentCloudUser=null;cloudReady=false;cloudStatus.textContent='Подключение…';}
   }
 
   async function initializeAuth(){
     const {data,error} = await cloud.auth.getSession();
     if(error){authMessage.textContent='Не удалось проверить вход. Обновите страницу.';authMessage.classList.add('error');return;}
-    showAuthSession(data.session);
+    await showAuthSession(data.session);
   }
 
   authSend.addEventListener('click', async()=>{
@@ -1035,8 +1097,8 @@
 
   authEmail.addEventListener('keydown',e=>{if(e.key==='Enter')authPasswordSignIn.click();});
   authPassword.addEventListener('keydown',e=>{if(e.key==='Enter')authPasswordSignIn.click();});
-  authSignOut.addEventListener('click',async()=>{await cloud.auth.signOut();showAuthSession(null);});
-  cloud.auth.onAuthStateChange((_event,session)=>showAuthSession(session));
+  authSignOut.addEventListener('click',async()=>{await recordSessionEvent('sign_out');if(currentCloudUser)sessionStorage.removeItem('ort_session_logged_'+currentCloudUser);await cloud.auth.signOut({scope:'local'});await showAuthSession(null);});
+  cloud.auth.onAuthStateChange((_event,session)=>setTimeout(()=>showAuthSession(session),0));
   initializeAuth();
 
   const STORAGE_KEY = 'ort_bio_questions';
@@ -1129,7 +1191,7 @@
   }
 
   async function uploadCatalogToCloud(){
-    if(!currentCloudUser||cloudSyncBusy)return;
+    if(!isWorkspaceOwner||!currentCloudUser||cloudSyncBusy)return;
     cloudSyncBusy=true;cloudStatus.textContent='Сохранение…';
     try{
       const existing=await cloud.from('questions').select('id,legacy_id');
@@ -1151,7 +1213,7 @@
   }
 
   function scheduleCloudSync(){
-    if(!cloudReady||!currentCloudUser)return;
+    if(!isWorkspaceOwner||!cloudReady||!currentCloudUser)return;
     clearTimeout(cloudSyncTimer);
     cloudSyncTimer=setTimeout(uploadCatalogToCloud,700);
   }
@@ -1165,7 +1227,7 @@
   }
 
   async function uploadPeopleToCloud(){
-    if(!currentCloudUser||peopleCloudSyncBusy)return;
+    if(!isWorkspaceOwner||!currentCloudUser||peopleCloudSyncBusy)return;
     peopleCloudSyncBusy=true;cloudStatus.textContent='Сохранение групп и учеников…';
     try{
       let result;
@@ -1185,7 +1247,7 @@
   }
 
   function schedulePeopleCloudSync(){
-    if(!peopleCloudReady||!currentCloudUser)return;
+    if(!isWorkspaceOwner||!peopleCloudReady||!currentCloudUser)return;
     clearTimeout(peopleCloudSyncTimer);
     peopleCloudSyncTimer=setTimeout(uploadPeopleToCloud,700);
   }
@@ -1205,7 +1267,7 @@
       peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';await initializeCloudAssessments();return;
     }
     peopleCloudReady=true;
-    if(groups.length||students.length){const ok=confirm(`В общей базе пока нет групп и учеников. Перенести туда локальные данные: групп — ${groups.length}, учеников — ${students.length}? Локальная копия останется в браузере.`);if(ok)await uploadPeopleToCloud();}
+    if(isWorkspaceOwner&&(groups.length||students.length)){const ok=confirm(`В общей базе пока нет групп и учеников. Перенести туда локальные данные: групп — ${groups.length}, учеников — ${students.length}? Локальная копия останется в браузере.`);if(ok)await uploadPeopleToCloud();}
     await initializeCloudAssessments();
   }
 
@@ -1214,7 +1276,7 @@
   }
 
   async function uploadAssessmentsToCloud(){
-    if(!currentCloudUser||assessmentCloudSyncBusy)return;
+    if(!isWorkspaceOwner||!currentCloudUser||assessmentCloudSyncBusy)return;
     assessmentCloudSyncBusy=true;cloudStatus.textContent='Сохранение тестов и результатов…';
     try{
       const testMap=new Map();
@@ -1238,7 +1300,7 @@
   }
 
   function scheduleAssessmentCloudSync(){
-    if(!assessmentCloudReady||!currentCloudUser)return;
+    if(!isWorkspaceOwner||!assessmentCloudReady||!currentCloudUser)return;
     clearTimeout(assessmentCloudSyncTimer);
     assessmentCloudSyncTimer=setTimeout(uploadAssessmentsToCloud,700);
   }
@@ -1258,7 +1320,7 @@
       assessmentCloudReady=true;cloudStatus.textContent='Синхронизировано';await initializeCloudAttendance();return;
     }
     assessmentCloudReady=true;
-    if(genTests.length||sittings.length){const ok=confirm(`В общей базе пока нет тестов и результатов. Перенести туда локальные данные: тестов — ${genTests.length}, прохождений — ${sittings.length}? Локальная копия останется в браузере.`);if(ok)await uploadAssessmentsToCloud();}
+    if(isWorkspaceOwner&&(genTests.length||sittings.length)){const ok=confirm(`В общей базе пока нет тестов и результатов. Перенести туда локальные данные: тестов — ${genTests.length}, прохождений — ${sittings.length}? Локальная копия останется в браузере.`);if(ok)await uploadAssessmentsToCloud();}
     await initializeCloudAttendance();
   }
 
@@ -1267,7 +1329,7 @@
   }
 
   async function uploadAttendanceToCloud(){
-    if(!currentCloudUser||attendanceCloudSyncBusy)return;
+    if(!isWorkspaceOwner||!currentCloudUser||attendanceCloudSyncBusy)return;
     attendanceCloudSyncBusy=true;cloudStatus.textContent='Сохранение журнала…';
     try{
       for(const lesson of attendance){
@@ -1285,7 +1347,7 @@
   }
 
   function scheduleAttendanceCloudSync(){
-    if(!attendanceCloudReady||!currentCloudUser)return;
+    if(!isWorkspaceOwner||!attendanceCloudReady||!currentCloudUser)return;
     clearTimeout(attendanceCloudSyncTimer);
     attendanceCloudSyncTimer=setTimeout(uploadAttendanceToCloud,700);
   }
@@ -1300,44 +1362,51 @@
       attendanceCloudReady=true;cloudStatus.textContent='Синхронизировано';return;
     }
     attendanceCloudReady=true;
-    if(attendance.length){const ok=confirm(`В общей базе пока нет занятий. Перенести туда локальный журнал: занятий — ${attendance.length}? Локальная копия останется в браузере.`);if(ok)await uploadAttendanceToCloud();}
+    if(isWorkspaceOwner&&attendance.length){const ok=confirm(`В общей базе пока нет занятий. Перенести туда локальный журнал: занятий — ${attendance.length}? Локальная копия останется в браузере.`);if(ok)await uploadAttendanceToCloud();}
   }
 
   async function deleteCloudLesson(legacyId){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser||!legacyId)return;
     const result=await cloud.from('lessons').delete().eq('legacy_id',legacyId);
     if(result.error)throw result.error;
   }
 
   async function deleteCloudStudent(legacyId){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser||!legacyId)return;
     for(const table of ['attendance_marks','homework_marks']){const result=await cloud.from(table).delete().eq('student_legacy_id',legacyId);if(result.error)throw result.error;}
     const result=await cloud.from('students').delete().eq('legacy_id',legacyId);if(result.error)throw result.error;
   }
 
   async function deleteCloudGroup(legacyId){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser||!legacyId)return;
     let result=await cloud.from('lessons').delete().eq('group_legacy_id',legacyId);if(result.error)throw result.error;
     result=await cloud.from('groups').delete().eq('legacy_id',legacyId);if(result.error)throw result.error;
   }
 
   async function deleteCloudSitting(legacyId){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser||!legacyId)return;
     const result=await cloud.from('test_sittings').delete().eq('legacy_id',legacyId);if(result.error)throw result.error;
   }
 
   async function deleteCloudQuestion(legacyId,imagePath){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser||!legacyId)return;
     if(imagePath){const removed=await cloud.storage.from('question-images').remove([imagePath]);if(removed.error)throw removed.error;}
     const result=await cloud.from('questions').delete().eq('legacy_id',legacyId);if(result.error)throw result.error;
   }
 
   async function deleteCloudMark(table,lessonLegacyId,studentLegacyId){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser)return;
     const result=await cloud.from(table).delete().eq('legacy_id',lessonLegacyId+':'+studentLegacyId);if(result.error)throw result.error;
   }
 
   async function eraseCloudSection(kind){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
     if(!currentCloudUser)return;
     const del=async(table)=>{const result=await cloud.from(table).delete().eq('owner_id',currentCloudUser);if(result.error)throw result.error;};
     if(kind==='questions'||kind==='all'){
@@ -1366,7 +1435,7 @@
         return;
       }
       cloudReady=true;
-      if(questions.length){
+      if(isWorkspaceOwner&&questions.length){
         const ok=confirm(`В общей базе пока нет вопросов. Перенести туда локальные карточки: ${questions.length}? Локальная копия останется в браузере.`);
         if(ok)await uploadCatalogToCloud();else cloudStatus.textContent='Только локально';
       }else cloudStatus.textContent='База подключена';
@@ -2195,7 +2264,7 @@
 
   // ============ NAV ============
   const navTabs = document.querySelectorAll('.nav-tab');
-  const appViews = { dashboard: document.getElementById('dashboardView'), catalog: document.getElementById('catalogView'), groups: document.getElementById('groupsView'), students:document.getElementById('studentsView'), attendance:document.getElementById('attendanceView'), generator: document.getElementById('generatorView'), tests: document.getElementById('testsListView'), data: document.getElementById('dataView'), guide: document.getElementById('guideView') };
+  const appViews = { dashboard: document.getElementById('dashboardView'), catalog: document.getElementById('catalogView'), groups: document.getElementById('groupsView'), students:document.getElementById('studentsView'), attendance:document.getElementById('attendanceView'), generator: document.getElementById('generatorView'), tests: document.getElementById('testsListView'), data: document.getElementById('dataView'), users:document.getElementById('usersView'), guide: document.getElementById('guideView') };
   const pageTitle = document.getElementById('pageTitle');
   const pageSubtitle = document.getElementById('pageSubtitle');
   const viewTitles = {
@@ -2207,11 +2276,13 @@
     generator: ['Генератор тестов', 'Сборка нового теста из банка вопросов'],
     tests: ['Тесты', 'Тесты, варианты и прохождения'],
     data: ['Данные и импорт', 'Резервные копии, массовый импорт и дубликаты'],
+    users: ['Пользователи', 'Доступ преподавателей и журнал активности'],
     guide: ['Инструкция', 'Как подготовить Word или PDF и перенести вопросы']
   };
   navTabs.forEach(btn => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view;
+      trackActivity(view);
       navTabs.forEach(b => b.classList.toggle('active', b === btn));
       Object.keys(appViews).forEach(k => appViews[k].hidden = (k !== view));
       pageTitle.textContent = viewTitles[view][0];
@@ -2225,6 +2296,7 @@
       if(view === 'tests') renderTestsListView();
       if(view === 'dashboard') renderDashboardView();
       if(view === 'data') renderDataView();
+      if(view === 'users') renderUsersView();
     });
   });
   document.getElementById('guideCopyMain').onclick=()=>navigator.clipboard.writeText(document.getElementById('guideMainPrompt').value).then(()=>document.getElementById('guideCopyMain').textContent='Скопировано');
@@ -2234,6 +2306,64 @@
     const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
     const url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+  }
+
+  function formatActivityTime(value){return value?new Date(value).toLocaleString('ru-RU'):'ещё не было';}
+  function activityLabel(type){
+    return {sign_in:'Вход',sign_out:'Выход',activity:'Активность',user_created:'Создан пользователь',user_enabled:'Доступ включён',user_disabled:'Доступ отключён',password_changed:'Изменён пароль'}[type]||type;
+  }
+  async function renderUsersView(){
+    const el=appViews.users;
+    if(!isWorkspaceOwner){el.innerHTML='<div class="readonly-banner">Этот раздел доступен только мастеру.</div>';return;}
+    el.innerHTML='<p class="manage-empty">Загружаем пользователей…</p>';
+    let data;
+    try{data=await invokeUserAdmin({action:'list'});}catch(error){el.innerHTML='<div class="readonly-banner">'+escapeHtml(error.message)+'</div>';return;}
+    const members=data.members||[],events=data.events||[];
+    el.innerHTML=`
+      <div class="users-grid">
+        <div>
+          <div class="data-card">
+            <h3>Создать преподавателя</h3>
+            <p class="section-hint">Самостоятельной регистрации нет. Сообщите преподавателю email и временный пароль лично.</p>
+            <div class="f"><label>Имя</label><input id="newUserName" placeholder="Например: Айгуль"></div>
+            <div class="f"><label>Email</label><input id="newUserEmail" type="email" autocomplete="off" placeholder="teacher@example.com"></div>
+            <div class="f"><label>Временный пароль</label><input id="newUserPassword" type="text" autocomplete="off" placeholder="Не менее 6 символов"></div>
+            <div class="action-row" style="margin-top:12px"><button class="btn" id="generateUserPassword">Придумать пароль</button><button class="btn primary" id="createUserAccount">Создать аккаунт</button></div>
+            <p class="auth-message" id="createUserStatus"></p>
+          </div>
+          <div class="data-card" style="margin-top:18px">
+            <h3>Пользователи · ${members.length}</h3>
+            <div id="membersList">${members.map(m=>`
+              <div class="user-card">
+                <div><b>${escapeHtml(m.display_name||m.email)}</b> <span class="role-badge">${m.role==='owner'?'Мастер':'Просмотр'}</span>
+                <small>${escapeHtml(m.email)}<br>Статус: ${m.status==='active'?'доступ разрешён':'доступ отключён'}<br>Последняя активность: ${formatActivityTime(m.last_seen_at)}<br>Последний вход: ${formatActivityTime(m.last_sign_in_at)}</small></div>
+                ${m.role==='teacher'?'<div class="action-row"><button class="btn ghost" data-reset-password="'+m.user_id+'">Новый пароль</button><button class="btn '+(m.status==='active'?'danger-text':'primary')+'" data-user-status="'+m.user_id+'" data-next-status="'+(m.status==='active'?'disabled':'active')+'">'+(m.status==='active'?'Отключить':'Включить')+'</button></div>':''}
+              </div>`).join('')}</div>
+          </div>
+        </div>
+        <div class="data-card">
+          <div class="section-head"><div><h3>Журнал активности</h3><p>Входы, выходы и действия с аккаунтами.</p></div><button class="btn ghost" id="refreshUsers">Обновить</button></div>
+          <div>${events.length?events.map(e=>`<div class="audit-line"><b>${escapeHtml(activityLabel(e.event_type))}</b> · ${escapeHtml(e.actor_email)}<small>${formatActivityTime(e.occurred_at)}${e.details&&e.details.target_email?' · пользователь: '+escapeHtml(e.details.target_email):''}${e.details&&e.details.view?' · раздел: '+escapeHtml((viewTitles[e.details.view]||[e.details.view])[0]):''}</small></div>`).join(''):'<p class="manage-empty">Событий пока нет.</p>'}</div>
+        </div>
+      </div>`;
+    document.getElementById('generateUserPassword').onclick=()=>{document.getElementById('newUserPassword').value='Ort-'+Math.random().toString(36).slice(2,8)+'!'+Math.floor(10+Math.random()*90);};
+    document.getElementById('createUserAccount').onclick=async()=>{
+      const button=document.getElementById('createUserAccount'),status=document.getElementById('createUserStatus');
+      const display_name=document.getElementById('newUserName').value.trim(),email=document.getElementById('newUserEmail').value.trim(),password=document.getElementById('newUserPassword').value;
+      button.disabled=true;status.classList.remove('error');status.textContent='Создаём аккаунт…';
+      try{await invokeUserAdmin({action:'create',display_name,email,password});status.textContent='Аккаунт создан. Передайте преподавателю email и временный пароль.';setTimeout(renderUsersView,900);}
+      catch(error){status.textContent=error.message;status.classList.add('error');button.disabled=false;}
+    };
+    document.getElementById('refreshUsers').onclick=renderUsersView;
+    el.querySelectorAll('[data-user-status]').forEach(button=>button.onclick=async()=>{
+      const next=button.dataset.nextStatus;if(!confirm(next==='disabled'?'Отключить доступ этого преподавателя?':'Снова разрешить доступ?'))return;
+      button.disabled=true;try{await invokeUserAdmin({action:'set_status',user_id:button.dataset.userStatus,status:next});await renderUsersView();}catch(error){alert(error.message);button.disabled=false;}
+    });
+    el.querySelectorAll('[data-reset-password]').forEach(button=>button.onclick=async()=>{
+      const password=prompt('Введите новый временный пароль (минимум 6 символов):');if(password===null)return;
+      if(password.length<6){alert('Пароль слишком короткий.');return;}
+      button.disabled=true;try{await invokeUserAdmin({action:'reset_password',user_id:button.dataset.resetPassword,password});alert('Пароль изменён. Сообщите его преподавателю лично.');await renderUsersView();}catch(error){alert(error.message);button.disabled=false;}
+    });
   }
 
   function renderDashboardView(){
@@ -2289,11 +2419,13 @@
   }
   function makeCloudSnapshotPayload(){const backup=makeBackup();backup.questions=questions.map(q=>({...q,image:null}));return backup;}
   async function createCloudSnapshot(){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может создавать снимки.');
     if(!currentCloudUser)throw new Error('Сначала войдите в аккаунт.');
     const label='Снимок '+new Date().toLocaleString('ru-RU');
     const result=await cloud.from('workspace_snapshots').insert({owner_id:currentCloudUser,label,payload:makeCloudSnapshotPayload()});if(result.error)throw result.error;
   }
   async function restoreCloudSnapshot(payload){
+    if(!isWorkspaceOwner)throw new Error('Только мастер может восстанавливать снимки.');
     const data=structuredClone(payload);await hydrateQuestionImages(data.questions||[]);restoreBackup(data);
   }
   async function renderCloudSnapshots(){

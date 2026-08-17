@@ -612,7 +612,7 @@
   .exam-page.force-compact .exam-q img{ max-height:38mm; margin:1mm auto; }
   .exam-page.force-compact.ultra-compact .exam-q{ font-size:7.6pt; line-height:1.02; padding-bottom:1.2mm; margin-bottom:1.2mm; }
   .exam-page.force-compact.ultra-compact .exam-q img{ max-height:29mm; }
-  .print-page{ width:210mm; min-height:297mm; padding:14mm 12mm; box-sizing:border-box; background:#fff; color:#000; page-break-after:always; font-family:Arial,sans-serif; }
+  .print-page{ position:relative; width:210mm; min-height:297mm; padding:14mm 12mm; box-sizing:border-box; background:#fff; color:#000; page-break-after:always; font-family:Arial,sans-serif; }
   .print-header{ border-bottom:2px solid #000; padding-bottom:8px; margin-bottom:16px; }
   .print-header h1{ font-size:17px; margin:0 0 6px; }
   .print-header .meta-line{ font-size:11.5px; margin:2px 0; }
@@ -673,8 +673,7 @@
   .teacher-readonly #btnMenu,.teacher-readonly [data-erase],.teacher-readonly #createCloudSnapshot,
   .teacher-readonly #btnAddGroup,.teacher-readonly #addStudent,.teacher-readonly #addLesson,
   .teacher-readonly #generateLessons,.teacher-readonly #openGroupSettings{display:none!important}
-  .teacher-readonly .mark-cell,.teacher-readonly [data-mark],.teacher-readonly [data-homework],.teacher-readonly [data-edit-lesson]{pointer-events:none}
-  .teacher-readonly .lesson-editor input,.teacher-readonly .lesson-editor select,.teacher-readonly .lesson-editor textarea{pointer-events:none;background:#f3f1e9}
+  .teacher-readonly #leDate,.teacher-readonly #leStatus{pointer-events:none;background:#f3f1e9}
   .teacher-readonly #groupDetailPage input,.teacher-readonly #groupDetailPage select,.teacher-readonly #groupDetailPage textarea{pointer-events:none;background:#f3f1e9}
   .teacher-readonly #studentsView>.inline-form{display:none!important}
   .teacher-readonly #groupsView>.inline-form,.teacher-readonly #groupsView .archive-switch{display:none!important}
@@ -1018,7 +1017,7 @@
 
   function applyRoleUi(){
     document.getElementById('usersNav').hidden=!isWorkspaceOwner;
-    authRole.textContent=isWorkspaceOwner?'Мастер':'Просмотр';
+    authRole.textContent=isWorkspaceOwner?'Мастер':'Преподаватель';
     document.body.classList.toggle('teacher-readonly',!isWorkspaceOwner);
     ['btnMenu','btnExport','btnImportTrigger','btnAdd','btnAddEmpty'].forEach(id=>{const el=document.getElementById(id);if(el)el.hidden=!isWorkspaceOwner;});
     if(isWorkspaceOwner){
@@ -1026,24 +1025,28 @@
       document.querySelectorAll('[data-readonly-hidden="1"]').forEach(el=>{el.hidden=false;delete el.dataset.readonlyHidden;});
     }
     if(!isWorkspaceOwner){
-      const catalog=document.getElementById('catalogView');
-      if(catalog&&!document.getElementById('readonlyBanner'))catalog.insertAdjacentHTML('afterbegin','<div class="readonly-banner" id="readonlyBanner">Режим преподавателя: данные доступны только для просмотра. Изменение и удаление защищены сервером.</div>');
+      questions=[];groups=[];students=[];genTests=[];sittings=[];attendance=[];
       applyReadOnlyControls();
       readonlyObserver?.disconnect();readonlyObserver=new MutationObserver(()=>applyReadOnlyControls());readonlyObserver.observe(document.getElementById('app'),{childList:true,subtree:true});
+      setTimeout(()=>document.querySelector('.nav-tab[data-view="groups"]')?.click(),0);
     }else document.getElementById('readonlyBanner')?.remove();
   }
 
   function hideReadonlyElement(el){if(!el||el.hidden)return;el.hidden=true;el.dataset.readonlyHidden='1';}
   function applyReadOnlyControls(){
     if(isWorkspaceOwner)return;
-    ['generator','data','guide','users'].forEach(view=>hideReadonlyElement(document.querySelector('.nav-tab[data-view="'+view+'"]')));
-    ['btnArchive','btnTrash','toggleBulkMode','btnAddEmpty','btnAddGroup','addStudent','addLesson','generateLessons','openGroupSettings','saveLessonEdit','deleteLesson','deleteStudent','createCloudSnapshot','gdSave','gdArchive','gdAddStudent','gdLoadSource','gdTransferBox'].forEach(id=>hideReadonlyElement(document.getElementById(id)));
+    ['catalog','generator','data','guide','users'].forEach(view=>hideReadonlyElement(document.querySelector('.nav-tab[data-view="'+view+'"]')));
+    ['btnArchive','btnTrash','toggleBulkMode','btnAddEmpty','btnAddGroup','addStudent','addLesson','generateLessons','openGroupSettings','deleteLesson','deleteStudent','createCloudSnapshot','gdSave','gdArchive','gdAddStudent','gdLoadSource','gdTransferBox'].forEach(id=>hideReadonlyElement(document.getElementById(id)));
     hideReadonlyElement(document.getElementById('attDate')?.closest('.f'));
+    hideReadonlyElement(document.getElementById('leDate')?.closest('label'));
+    hideReadonlyElement(document.getElementById('leStatus')?.closest('label'));
     document.querySelectorAll('#app [data-erase],#app [data-delete-sitting],#app [data-void-test],#app [data-cancel-test],#app .add-to-source,#app .source-new').forEach(hideReadonlyElement);
     const forbidden=/^(добавить|создать|сохранить|изменить|редактировать|переименовать|удалить|архивировать|в архив|вернуть|восстановить|выбыл|в группу|перевести|перенести|отменить|аннулировать|записать|занести|зафиксировать|дублировать|заполнить|настройки группы|применить)/i;
     document.querySelectorAll('#app button').forEach(button=>{
       if(button.closest('.auth-user')||button.classList.contains('nav-tab'))return;
-      const text=button.textContent.trim().replace(/^[^a-zа-яё0-9]+/i,'');if(forbidden.test(text))hideReadonlyElement(button);
+      const raw=button.textContent.trim();
+      if(['Сохранить занятие','Записать результаты','Сохранить прохождение'].includes(raw)||button.hasAttribute('data-mark')||button.hasAttribute('data-homework')||button.closest('[data-edit-lesson]')||button.dataset.act==='addrow'||button.dataset.act==='save')return;
+      const text=raw.replace(/^[^a-zа-яё0-9]+/i,'');if(forbidden.test(text))hideReadonlyElement(button);
     });
   }
 
@@ -1152,6 +1155,7 @@
   const TEST_PRESETS = {
     final:{label:'Итоговый ОРТ',questions:40,time:60,points:150}, trial:{label:'Пробный',questions:20,time:30,points:75}, mini:{label:'Мини-тест',questions:10,time:15,points:38}, custom:{label:'Свой вариант',questions:null,time:null,points:null}
   };
+  const TEACHER_WATERMARK='ДЫЙКАНБАЕВ АЙДАР';
 
   let questions = load();
   let editingId = null;
@@ -1303,7 +1307,7 @@
       students=cloudStudents.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
       localStorage.setItem(GROUPS_KEY,JSON.stringify(groups));localStorage.setItem(STUDENTS_KEY,JSON.stringify(students));
       localStorage.setItem(GROUP_SEQ_KEY,String(Math.max(0,...groups.map(g=>Number(g.seq)||0))));localStorage.setItem(STUDENT_SEQ_KEY,String(Math.max(0,...students.map(s=>Number(s.seq)||0))));
-      peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';await initializeCloudAssessments();return;
+      peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';if(!isWorkspaceOwner)renderGroupsView();await initializeCloudAssessments();return;
     }
     peopleCloudReady=true;
     if(isWorkspaceOwner&&(groups.length||students.length)){const ok=confirm(`В общей базе пока нет групп и учеников. Перенести туда локальные данные: групп — ${groups.length}, учеников — ${students.length}? Локальная копия останется в браузере.`);if(ok)await uploadPeopleToCloud();}
@@ -1315,8 +1319,14 @@
   }
 
   async function uploadAssessmentsToCloud(){
-    if(!isWorkspaceOwner||!currentCloudUser||assessmentCloudSyncBusy)return;
+    if(!currentCloudUser||assessmentCloudSyncBusy)return;
     assessmentCloudSyncBusy=true;cloudStatus.textContent='Сохранение тестов и результатов…';
+    if(!isWorkspaceOwner){
+      try{const {data,error}=await cloud.functions.invoke('teacher-workspace',{body:{action:'save_results',sittings}});if(error||data?.error)throw new Error(data?.error||error.message);cloudStatus.textContent='Результаты синхронизированы';}
+      catch(error){console.error(error);cloudStatus.textContent='Ошибка сохранения результатов';}
+      finally{assessmentCloudSyncBusy=false;}
+      return;
+    }
     try{
       const testMap=new Map();
       for(const t of genTests){
@@ -1339,7 +1349,7 @@
   }
 
   function scheduleAssessmentCloudSync(){
-    if(!isWorkspaceOwner||!assessmentCloudReady||!currentCloudUser)return;
+    if(!assessmentCloudReady||!currentCloudUser)return;
     clearTimeout(assessmentCloudSyncTimer);
     assessmentCloudSyncTimer=setTimeout(uploadAssessmentsToCloud,700);
   }
@@ -1368,8 +1378,14 @@
   }
 
   async function uploadAttendanceToCloud(){
-    if(!isWorkspaceOwner||!currentCloudUser||attendanceCloudSyncBusy)return;
+    if(!currentCloudUser||attendanceCloudSyncBusy)return;
     attendanceCloudSyncBusy=true;cloudStatus.textContent='Сохранение журнала…';
+    if(!isWorkspaceOwner){
+      try{const {data,error}=await cloud.functions.invoke('teacher-workspace',{body:{action:'save_attendance',lessons:attendance}});if(error||data?.error)throw new Error(data?.error||error.message);cloudStatus.textContent='Журнал синхронизирован';}
+      catch(error){console.error(error);cloudStatus.textContent='Ошибка сохранения журнала';}
+      finally{attendanceCloudSyncBusy=false;}
+      return;
+    }
     try{
       for(const lesson of attendance){
         if(!lesson.id||!lesson.groupId||!lesson.date)continue;
@@ -1386,7 +1402,7 @@
   }
 
   function scheduleAttendanceCloudSync(){
-    if(!isWorkspaceOwner||!attendanceCloudReady||!currentCloudUser)return;
+    if(!attendanceCloudReady||!currentCloudUser)return;
     clearTimeout(attendanceCloudSyncTimer);
     attendanceCloudSyncTimer=setTimeout(uploadAttendanceToCloud,700);
   }
@@ -1439,7 +1455,7 @@
   }
 
   async function deleteCloudMark(table,lessonLegacyId,studentLegacyId){
-    if(!isWorkspaceOwner)throw new Error('Только мастер может изменять данные.');
+    if(!isWorkspaceOwner){scheduleAttendanceCloudSync();return;}
     if(!currentCloudUser)return;
     const result=await cloud.from(table).delete().eq('legacy_id',lessonLegacyId+':'+studentLegacyId);if(result.error)throw result.error;
   }
@@ -2355,8 +2371,16 @@
     const el=appViews.users;
     if(!isWorkspaceOwner){el.innerHTML='<div class="readonly-banner">Этот раздел доступен только мастеру.</div>';return;}
     el.innerHTML='<p class="manage-empty">Загружаем пользователей…</p>';
-    let data;
-    try{data=await invokeUserAdmin({action:'list'});}catch(error){el.innerHTML='<div class="readonly-banner">'+escapeHtml(error.message)+'</div>';return;}
+    let data,groupRows=[],assignments=[];
+    try{
+      const [adminData,groupResult,assignmentResult]=await Promise.all([
+        invokeUserAdmin({action:'list'}),
+        cloud.from('groups').select('id,legacy_id,name').order('name',{ascending:true}),
+        cloud.from('teacher_group_assignments').select('teacher_user_id,group_id')
+      ]);
+      if(groupResult.error)throw groupResult.error;if(assignmentResult.error)throw assignmentResult.error;
+      data=adminData;groupRows=groupResult.data||[];assignments=assignmentResult.data||[];
+    }catch(error){el.innerHTML='<div class="readonly-banner">'+escapeHtml(error.message)+'</div>';return;}
     const members=data.members||[],events=data.events||[];
     el.innerHTML=`
       <div class="users-grid">
@@ -2376,9 +2400,9 @@
             <h3>Пользователи · ${members.length}</h3>
             <div id="membersList">${members.map(m=>`
               <div class="user-card">
-                <div><b>${escapeHtml(m.display_name||m.username||m.email)}</b> <span class="role-badge">${m.role==='owner'?'Мастер':'Просмотр'}</span>
+                <div><b>${escapeHtml(m.display_name||m.username||m.email)}</b> <span class="role-badge">${m.role==='owner'?'Мастер':'Преподаватель'}</span>
                 <small>Логин: ${escapeHtml(m.username||m.email)}<br>Email: ${escapeHtml(m.contact_email||'не указан')}<br>Статус: ${m.status==='active'?'доступ разрешён':'доступ отключён'}<br>Последняя активность: ${formatActivityTime(m.last_seen_at)}<br>Последний вход: ${formatActivityTime(m.last_sign_in_at)}</small></div>
-                ${m.role==='teacher'?'<div class="action-row"><button class="btn ghost" data-reset-password="'+m.user_id+'">Новый пароль</button><button class="btn '+(m.status==='active'?'danger-text':'primary')+'" data-user-status="'+m.user_id+'" data-next-status="'+(m.status==='active'?'disabled':'active')+'">'+(m.status==='active'?'Отключить':'Включить')+'</button></div>':''}
+                ${m.role==='teacher'?`<div style="min-width:250px"><b style="font-size:12px">Назначенные группы</b><div style="margin:7px 0 10px">${groupRows.length?groupRows.map(g=>`<label style="display:block;margin:5px 0"><input type="checkbox" data-group-access="${m.user_id}" value="${g.id}" ${assignments.some(a=>a.teacher_user_id===m.user_id&&String(a.group_id)===String(g.id))?'checked':''}> ${escapeHtml(g.name)}</label>`).join(''):'<small>Сначала создайте группу.</small>'}</div><div class="action-row"><button class="btn primary" data-save-group-access="${m.user_id}">Сохранить группы</button><button class="btn ghost" data-reset-password="${m.user_id}">Новый пароль</button><button class="btn ${m.status==='active'?'danger-text':'primary'}" data-user-status="${m.user_id}" data-next-status="${m.status==='active'?'disabled':'active'}">${m.status==='active'?'Отключить':'Включить'}</button></div></div>`:''}
               </div>`).join('')}</div>
           </div>
         </div>
@@ -2396,6 +2420,16 @@
       catch(error){status.textContent=error.message;status.classList.add('error');button.disabled=false;}
     };
     document.getElementById('refreshUsers').onclick=renderUsersView;
+    el.querySelectorAll('[data-save-group-access]').forEach(button=>button.onclick=async()=>{
+      const teacherId=button.dataset.saveGroupAccess,selected=[...el.querySelectorAll('[data-group-access="'+teacherId+'"]:checked')].map(x=>Number(x.value)),existing=assignments.filter(a=>a.teacher_user_id===teacherId).map(a=>Number(a.group_id));
+      button.disabled=true;button.textContent='Сохраняем…';
+      try{
+        const add=selected.filter(id=>!existing.includes(id)),remove=existing.filter(id=>!selected.includes(id));
+        if(add.length){const ins=await cloud.from('teacher_group_assignments').insert(add.map(group_id=>({workspace_owner_id:currentCloudUser,teacher_user_id:teacherId,group_id,created_by:currentCloudUser})));if(ins.error)throw ins.error;}
+        if(remove.length){const del=await cloud.from('teacher_group_assignments').delete().eq('teacher_user_id',teacherId).in('group_id',remove);if(del.error)throw del.error;}
+        alert('Доступ к группам сохранён.');await renderUsersView();
+      }catch(error){alert('Не удалось сохранить группы: '+error.message);button.disabled=false;button.textContent='Сохранить группы';}
+    });
     el.querySelectorAll('[data-user-status]').forEach(button=>button.onclick=async()=>{
       const next=button.dataset.nextStatus;if(!confirm(next==='disabled'?'Отключить доступ этого преподавателя?':'Снова разрешить доступ?'))return;
       button.disabled=true;try{await invokeUserAdmin({action:'set_status',user_id:button.dataset.userStatus,status:next});await renderUsersView();}catch(error){alert(error.message);button.disabled=false;}
@@ -3218,6 +3252,7 @@
           <button class="btn primary" type="button" data-act="doprint">Печать</button>
         </div>`;
         const wm=printEl.querySelector('.pp-watermark'),customWrap=printEl.querySelector('.pp-custom-wrap');
+        if(!isWorkspaceOwner){wm.innerHTML='<option value="'+TEACHER_WATERMARK+'">'+TEACHER_WATERMARK+'</option>';wm.value=TEACHER_WATERMARK;wm.disabled=true;customWrap.hidden=true;}
         wm.onchange=()=>customWrap.hidden=wm.value!=='__custom__';
         printEl.querySelector('[data-act=doprint]').onclick = () => {
           printTest(t, {
@@ -3556,7 +3591,7 @@
   let currentPreviewTest=null, currentPreviewPreset='custom', currentPreviewOpts=null;
   function previewOptions(t,key){
     const p=TEST_PRESETS[key]||TEST_PRESETS.custom;
-    return {columns:2,time:p.time||suggestedTestTime(t.items.length),points:p.points||suggestedTestPoints(t.items.length),instruction:'В этом разделе Вам нужно ответить на вопросы и решить несколько задач. Графики, рисунки и схемы дают необходимую информацию для ответов.',watermark:'',includeSheet:false,includeKey:false};
+    return {columns:2,time:p.time||suggestedTestTime(t.items.length),points:p.points||suggestedTestPoints(t.items.length),instruction:'В этом разделе Вам нужно ответить на вопросы и решить несколько задач. Графики, рисунки и схемы дают необходимую информацию для ответов.',watermark:isWorkspaceOwner?'':TEACHER_WATERMARK,includeSheet:false,includeKey:false};
   }
   async function openA4Preview(t){
     currentPreviewTest=t;currentPreviewPreset=t.preset&&TEST_PRESETS[t.preset]?t.preset:'custom';
@@ -3587,8 +3622,9 @@
   }
 
   async function printTest(t, opts){
+    if(!isWorkspaceOwner)opts={...opts,watermark:TEACHER_WATERMARK};
     const pages=opts.columns===2?await buildCompactExamPages(t,opts):await buildExamPages(t,opts),supplement=buildSupplementHTML(t,opts),area=document.getElementById('printArea');
-    if(supplement){pages[pages.length-1].classList.add('has-supplements');area.insertAdjacentHTML('beforeend',supplement);}
+    if(supplement){pages[pages.length-1].classList.add('has-supplements');area.insertAdjacentHTML('beforeend',supplement);if(!isWorkspaceOwner)area.querySelectorAll('.print-page').forEach(page=>page.insertAdjacentHTML('afterbegin','<div class="exam-watermark">'+escapeHtml(TEACHER_WATERMARK)+'</div>'));}
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     window.print();
   }

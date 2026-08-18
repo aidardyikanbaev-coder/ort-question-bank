@@ -529,9 +529,22 @@
   .analytics-card h3{ margin:0 0 14px; font-family:'Fraunces',serif; }
   .question-analysis{border:1px solid var(--line);background:#fff;padding:14px;margin:10px 0}
   .question-analysis.voided{opacity:.72;background:var(--paper-deep)}
+  .question-analysis>summary{cursor:pointer;font-weight:600;color:var(--green-deep)}
+  .question-analysis-body{padding-top:12px}.analysis-question-text{font-size:14px;line-height:1.5;margin:8px 0}
   .answer-stat{display:grid;grid-template-columns:28px 1fr 52px;gap:8px;align-items:center;margin:6px 0;font-size:12px}
   .answer-stat i{display:block;height:8px;background:#c95a5a;border-radius:8px}.answer-stat.correct i{background:var(--green)}
   .answer-stat.correct b{color:var(--green-deep)}.answer-stat.wrong b{color:var(--error)}
+  .answer-stat-detail{border:1px solid var(--line-soft);margin:6px 0;background:var(--paper-raised)}
+  .answer-stat-detail summary{display:grid;grid-template-columns:28px 1fr 52px;gap:8px;align-items:center;padding:8px;cursor:pointer;font-size:12px}
+  .answer-stat-detail summary i{display:block;height:8px;background:#c95a5a;border-radius:8px}.answer-stat-detail.correct summary i{background:var(--green)}
+  .answer-stat-detail.correct summary b{color:var(--green-deep)}.answer-stat-detail.wrong summary b{color:var(--error)}
+  .respondent-list{padding:0 10px 9px 38px;font-size:11px;color:var(--ink-soft)}
+  .result-attempt{border:1px solid var(--line);background:#fff;margin:9px 0}.result-attempt>summary{cursor:pointer;padding:11px;font-weight:600}
+  .result-attempt-body{padding:0 11px 11px}.result-student{border-top:1px solid var(--line-soft);padding:9px 0}
+  .student-answer-detail{margin-top:8px;padding:10px;background:var(--paper-deep)}
+  .student-answer-question{background:#fff;border:1px solid var(--line-soft);padding:10px;margin:7px 0}
+  .student-option{padding:5px 7px;margin:3px 0;border-left:4px solid transparent;font-size:12px}.student-option.correct{background:#e1eadc;border-left-color:var(--green);color:var(--green-deep)}.student-option.wrong{background:#f3dfdc;border-left-color:var(--error);color:var(--error)}
+  .student-option img,.analysis-question-options img{display:block;max-width:220px;max-height:150px;margin:5px 0}
   .preview-score-tools{display:flex;gap:9px;flex-wrap:wrap;align-items:end;padding:12px;background:var(--paper-deep);margin-bottom:12px}
   .preview-score-tools label{font-size:11px;color:var(--ink-soft)}.preview-score-tools input{width:68px;padding:6px}
   .preview-thumb{max-width:170px;max-height:110px;display:block;margin:8px 0;border:1px solid var(--line);cursor:zoom-in}
@@ -3303,29 +3316,21 @@
     refreshAllTestListings();
   }
 
+  function resultStudentName(result){return String(result?.studentName||'').trim()||'Неизвестный ученик';}
+  function renderStudentAnswerDetail(t,result){
+    const answers=resultAnswers(result);if(!answers)return'<p class="manage-empty">У этого старого результата ответы по вопросам не сохранились.</p>';
+    const key=omrKey(t);
+    return `<div class="student-answer-detail">${t.items.map((item,i)=>{const info=orderedOptionsFor(item),q=info?.q,a=answers[i]||'',correct=key[i]||'—',voided=itemIsVoided(item);return `<div class="student-answer-question ${voided?'voided':''}"><b>№${i+1}. ${escapeHtml(q?(q.photoOnly?'Задание на изображении':q.question):'(вопрос удалён)')}</b> ${voided?'<span class="status-badge status-archived">не учитывается</span>':''}${q?.context?`<p>${escapeHtml(q.context)}</p>`:''}${q?.image?`<img class="preview-thumb" src="${q.image}" alt="Вопрос ${i+1}">`:''}<p class="section-hint">Ответ ученика: <b style="color:${a===correct?'var(--green-deep)':'var(--error)'}">${escapeHtml(a==='conflict'?'двойная отметка':a||'нет ответа')}</b> · правильный: <b style="color:var(--green-deep)">${correct}</b> · ${itemPoints(item)} балл.</p><div>${info?info.opts.map((opt,j)=>{const l=OPTION_LETTERS[j],cls=l===correct?'correct':l===a?'wrong':'';return `<div class="student-option ${cls}"><b>${l}</b> — ${escapeHtml(opt.text||'')}${opt.image?`<img src="${opt.image}" alt="Вариант ${l}">`:''}${l===a?' <small>← ответ ученика</small>':''}${l===correct?' <small>← правильный ответ</small>':''}</div>`;}).join(''):''}</div></div>`;}).join('')}</div>`;
+  }
+  function existingSittingsHtml(t,list){
+    if(!list.length)return'<p class="manage-empty">Прохождений пока нет. После проверки OMR они появятся здесь автоматически.</p>';
+    return list.map((s,si)=>{const results=s.results||[],avg=results.length?(results.reduce((a,r)=>a+(parseFloat(r.scorePercent)||0),0)/results.length).toFixed(1):'—';return `<details class="result-attempt"><summary>${new Date(s.date).toLocaleDateString('ru-RU')} · ${results.length} учен. · средний результат ${avg}%</summary><div class="result-attempt-body">${results.map((r,ri)=>`<div class="result-student"><b>${escapeHtml(resultStudentName(r))}</b> — ${r.scorePercent}%${r.correctCount!=null?' · '+r.correctCount+'/'+r.totalCount+' верно':''}${r.pointsPossible!=null?' · '+r.pointsEarned+'/'+r.pointsPossible+' баллов':''}<button class="btn ghost" type="button" data-show-result="${si}:${ri}">Показать ответы</button><div data-result-detail="${si}:${ri}" hidden></div></div>`).join('')}${isWorkspaceOwner?`<button class="btn danger-text" type="button" data-delete-sitting="${s.id}">Удалить прохождение</button>`:''}</div></details>`;}).join('');
+  }
   function renderSittingBlock(el, t){
-    const list = sittings.filter(s => s.generatedTestId === t.id).sort((a,b)=> new Date(b.date)-new Date(a.date));
-    el.innerHTML = `
-      <div class="sit-existing"></div>
-      <p class="test-meta" style="margin:10px 0 6px;">Новое прохождение</p>
-      <div style="margin-bottom:8px;"><input type="date" class="sit-date-input" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div class="sit-rows"></div>
-      <div style="display:flex; gap:8px; margin-top:6px;">
-        <button class="btn ghost" type="button" data-act="addrow">+ ученик</button>
-        <button class="btn primary" type="button" data-act="save">Сохранить прохождение</button>
-      </div>
-    `;
-    const existingEl = el.querySelector('.sit-existing');
-    if(list.length){
-      existingEl.innerHTML = '<div class="sitting-list">' + list.map(s => {
-        const avg = s.results.length ? (s.results.reduce((a,r)=>a+(parseFloat(r.scorePercent)||0),0)/s.results.length).toFixed(1) : '—';
-        return `<div class="sit-date">${new Date(s.date).toLocaleDateString('ru-RU')} · ${s.results.length} учен. · средний балл ${avg}%</div>` +
-          s.results.map(r => `<div>· ${escapeHtml(r.studentName)} — ${r.scorePercent}%${r.correctCount!=null?' ('+r.correctCount+'/'+r.totalCount+')':''}${r.pointsPossible!=null?' · '+r.pointsEarned+'/'+r.pointsPossible+' баллов':''}</div>`).join('') + `<button class="btn danger-text" type="button" data-delete-sitting="${s.id}">Удалить прохождение</button>`;
-      }).join('') + '</div>';
-    } else {
-      existingEl.innerHTML = '<p class="manage-empty">Прохождений пока не записано.</p>';
-    }
-    const rowsEl = el.querySelector('.sit-rows');
+    const list=sittings.filter(s=>s.generatedTestId===t.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
+    el.innerHTML=`<div class="sit-existing">${existingSittingsHtml(t,list)}</div><button class="btn ghost" type="button" data-act="toggle-entry">+ Добавить вручную (если нет OMR)</button><div class="manual-sitting-entry" hidden><p class="test-meta" style="margin:10px 0 6px;">Ручной ввод прохождения</p><div style="margin-bottom:8px;"><input type="date" class="sit-date-input" value="${new Date().toISOString().slice(0,10)}"></div><div class="sit-rows"></div><div style="display:flex;gap:8px;margin-top:6px"><button class="btn ghost" type="button" data-act="addrow">+ ученик</button><button class="btn primary" type="button" data-act="save">Сохранить ручной ввод</button></div></div>`;
+    el.querySelectorAll('[data-show-result]').forEach(button=>button.onclick=()=>{const token=button.dataset.showResult,target=el.querySelector(`[data-result-detail="${token}"]`),[si,ri]=token.split(':').map(Number),result=list[si]?.results?.[ri];target.hidden=!target.hidden;button.textContent=target.hidden?'Показать ответы':'Скрыть ответы';if(!target.hidden&&!target.dataset.ready){target.innerHTML=renderStudentAnswerDetail(t,result);target.dataset.ready='1';}});
+    const manual=el.querySelector('.manual-sitting-entry'),rowsEl=el.querySelector('.sit-rows');let manualReady=false;
     function addRow(studentId, name){
       const row = document.createElement('div');
       row.className = 'sitting-person';
@@ -3337,12 +3342,8 @@
       row.querySelectorAll('[data-answer-q]').forEach(x=>x.onchange=recalc);recalc();
       rowsEl.appendChild(row);
     }
-    const roster = t.groupId ? studentsInGroup(t.groupId) : [];
-    if(roster.length){
-      roster.slice().sort((a,b)=>a.name.localeCompare(b.name,'ru')).forEach(st => addRow(st.id, st.name));
-    } else {
-      addRow(); addRow();
-    }
+    const prepareManual=()=>{if(manualReady)return;manualReady=true;const roster=t.groupId?studentsInGroup(t.groupId):[];if(roster.length)roster.slice().sort((a,b)=>studentDisplayName(a).localeCompare(studentDisplayName(b),'ru')).forEach(st=>addRow(st.id,studentDisplayName(st)));else{addRow();addRow();}};
+    el.querySelector('[data-act=toggle-entry]').onclick=()=>{manual.hidden=!manual.hidden;if(!manual.hidden)prepareManual();};
     el.querySelector('[data-act=addrow]').onclick = () => addRow();
     el.querySelector('[data-act=save]').onclick = () => {
       const date = el.querySelector('.sit-date-input').value || new Date().toISOString().slice(0,10);
@@ -3356,7 +3357,7 @@
         renderGroupDetail(currentDetailGroup);
         return;
       }
-      renderSittingBlock(el, t);
+      renderSittingBlock(el,t);
     };
     el.querySelectorAll('[data-delete-sitting]').forEach(b=>b.onclick=async()=>{if(!confirm('Удалить это прохождение и его результаты?'))return;try{await deleteCloudSitting(b.dataset.deleteSitting);}catch(error){console.error(error);alert('Не удалось удалить прохождение из облака.');return;}sittings=sittings.filter(s=>s.id!==b.dataset.deleteSitting);saveSittings();renderSittingBlock(el,t);});
   }
@@ -3471,7 +3472,7 @@
           };
         }
       }));
-      actions.appendChild(mkBtn('Записать результаты','ghost', () => {
+      actions.appendChild(mkBtn(`Результаты${resultRows.length?' ('+resultRows.length+')':''}`,'ghost', () => {
         sittingEl.hidden = !sittingEl.hidden;
         if(!sittingEl.hidden) renderSittingBlock(sittingEl, t);
       }));
@@ -3490,10 +3491,6 @@
       }));
     }
 
-    if(testSittings.length){
-      sittingEl.hidden = false;
-      renderSittingBlock(sittingEl, t);
-    }
     return card;
   }
 
@@ -3512,13 +3509,13 @@
     const key=omrKey(t),withAnswers=rows.filter(r=>resultAnswers(r));
     if(!withAnswers.length)return'<p class="hint-good">Подробная аналитика появится после распознавания первого OMR-бланка или ручного ввода ответов.</p>';
     return `<p class="section-hint">В анализе ответов: ${withAnswers.length} из ${rows.length} результатов. Старые результаты без сохранённых ответов не включены.</p>`+t.items.map((item,i)=>{
-      const q=questionById(item.questionId),counts=Object.fromEntries(OPTION_LETTERS.map(l=>[l,0])),wrongNames={};let blank=0;
-      withAnswers.forEach(r=>{const a=resultAnswers(r)?.[i];if(counts[a]!=null)counts[a]++;else blank++;if(a&&a!==key[i]){(wrongNames[a]??=[]).push(r.studentName||'Без имени');}});
+      const info=orderedOptionsFor(item),q=info?.q||questionById(item.questionId),counts=Object.fromEntries(OPTION_LETTERS.map(l=>[l,0])),names=Object.fromEntries(OPTION_LETTERS.map(l=>[l,[]])),blankNames=[];
+      withAnswers.forEach(r=>{const a=resultAnswers(r)?.[i],name=resultStudentName(r);if(counts[a]!=null){counts[a]++;names[a].push(name);}else blankNames.push(name);});
       const mostWrong=OPTION_LETTERS.filter(l=>l!==key[i]).sort((a,b)=>counts[b]-counts[a])[0],max=Math.max(1,...Object.values(counts));
-      return `<section class="question-analysis ${itemIsVoided(item)?'voided':''}"><b>№${i+1}. ${escapeHtml(q?(q.photoOnly?'Задание на изображении':q.question):'(вопрос удалён)')}</b> <span class="status-badge">${itemPoints(item)} балл.</span> ${itemIsVoided(item)?'<span class="status-badge status-archived">аннулирован — не учитывается</span>':''}
-        ${OPTION_LETTERS.map(l=>`<div class="answer-stat ${l===key[i]?'correct':'wrong'}"><b>${l}</b><span><i style="width:${counts[l]/max*100}%"></i>${wrongNames[l]?.length?`<small>${escapeHtml(wrongNames[l].join(', '))}</small>`:''}</span><b>${counts[l]}</b></div>`).join('')}
-        ${blank?`<small>Без ответа / двойная отметка: ${blank}</small>`:''}
-        ${mostWrong&&counts[mostWrong]?`<p class="section-hint">Чаще всего ошибочно выбирали ${mostWrong}: ${counts[mostWrong]} чел. Это возможная загвоздка для разбора на уроке.</p>`:''}</section>`;
+      return `<details class="question-analysis ${itemIsVoided(item)?'voided':''}"><summary>№${i+1} · правильный ответ ${key[i]||'—'} · ответов ${withAnswers.length} · Развернуть анализ</summary><div class="question-analysis-body"><div class="analysis-question-text"><b>${escapeHtml(q?(q.photoOnly?'Задание на изображении':q.question):'(вопрос удалён)')}</b> <span class="status-badge">${itemPoints(item)} балл.</span> ${itemIsVoided(item)?'<span class="status-badge status-archived">аннулирован — не учитывается</span>':''}${q?.context?`<p>${escapeHtml(q.context)}</p>`:''}${q?.image?`<img class="preview-thumb" src="${q.image}" alt="Вопрос ${i+1}">`:''}</div><div class="analysis-question-options">${info?info.opts.map((opt,j)=>`<div class="student-option ${OPTION_LETTERS[j]===key[i]?'correct':''}"><b>${OPTION_LETTERS[j]}</b> — ${escapeHtml(opt.text||'')}${opt.image?`<img src="${opt.image}" alt="Вариант ${OPTION_LETTERS[j]}">`:''}${OPTION_LETTERS[j]===key[i]?' <small>← правильный ответ</small>':''}</div>`).join(''):''}</div><h4>Кто какой ответ выбрал</h4>
+        ${OPTION_LETTERS.map(l=>`<details class="answer-stat-detail ${l===key[i]?'correct':'wrong'}"><summary><b>${l}</b><span><i style="width:${counts[l]/max*100}%"></i></span><b>${counts[l]}</b></summary><div class="respondent-list">${names[l].length?escapeHtml(names[l].join(', ')):'Никто не выбрал этот ответ'}</div></details>`).join('')}
+        ${blankNames.length?`<details class="answer-stat-detail wrong"><summary><b>—</b><span>Без ответа / двойная отметка</span><b>${blankNames.length}</b></summary><div class="respondent-list">${escapeHtml(blankNames.join(', '))}</div></details>`:''}
+        ${mostWrong&&counts[mostWrong]?`<p class="section-hint">Чаще всего ошибочно выбирали ${mostWrong}: ${counts[mostWrong]} чел. Это возможная загвоздка для разбора на уроке.</p>`:''}</div></details>`;
     }).join('');
   }
   function renderTestDetail(t,tab){

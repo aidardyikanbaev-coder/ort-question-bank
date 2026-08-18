@@ -3784,7 +3784,11 @@
       await Promise.all(images.map(async img=>{try{if(img.decode)await img.decode();}catch(e){}}));
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     };
-    const hasRoom=col=>col.scrollHeight<=col.clientHeight-10;
+    const hasRoom=col=>{
+      const last=col.lastElementChild;if(!last)return true;
+      const colBox=col.getBoundingClientRect(),itemBox=last.getBoundingClientRect(),marginBottom=parseFloat(getComputedStyle(last).marginBottom)||0;
+      return itemBox.bottom+marginBottom<=colBox.bottom-8;
+    };
     for(let idx=0;idx<t.items.length;idx++){
       const node=makeExamQuestion(t.items[idx],idx);if(!node)continue;
       let cols=page.querySelectorAll('.exam-col'),col=cols[colIndex];col.appendChild(node);await settle(node);

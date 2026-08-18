@@ -527,6 +527,19 @@
   .analytics-grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
   .analytics-card{ background:var(--paper-raised); border:1px solid var(--line); padding:18px; }
   .analytics-card h3{ margin:0 0 14px; font-family:'Fraunces',serif; }
+  .question-analysis{border:1px solid var(--line);background:#fff;padding:14px;margin:10px 0}
+  .question-analysis.voided{opacity:.72;background:var(--paper-deep)}
+  .answer-stat{display:grid;grid-template-columns:28px 1fr 52px;gap:8px;align-items:center;margin:6px 0;font-size:12px}
+  .answer-stat i{display:block;height:8px;background:#c95a5a;border-radius:8px}.answer-stat.correct i{background:var(--green)}
+  .answer-stat.correct b{color:var(--green-deep)}.answer-stat.wrong b{color:var(--error)}
+  .preview-score-tools{display:flex;gap:9px;flex-wrap:wrap;align-items:end;padding:12px;background:var(--paper-deep);margin-bottom:12px}
+  .preview-score-tools label{font-size:11px;color:var(--ink-soft)}.preview-score-tools input{width:68px;padding:6px}
+  .preview-thumb{max-width:170px;max-height:110px;display:block;margin:8px 0;border:1px solid var(--line);cursor:zoom-in}
+  .preview-item{flex-wrap:wrap}.preview-item .preview-extra{width:100%;padding-left:30px;font-size:11px;color:var(--ink-soft)}
+  .preview-item .item-points{width:58px;padding:5px}
+  .answer-entry{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:5px;margin:4px 0 12px;padding:9px;background:var(--paper-deep)}
+  .answer-entry label{font-size:10px;color:var(--ink-soft)}.answer-entry select{display:block;width:100%;padding:5px}
+  .test-question-row{border:1px solid var(--line-soft);padding:12px;margin:8px 0;background:#fff}.test-question-row.voided{opacity:.65;background:var(--paper-deep)}
   .bar-row{ display:grid; grid-template-columns:minmax(90px,1fr) 3fr 48px; gap:10px; align-items:center; margin:8px 0; font-size:12px; }
   .bar{ height:8px; background:var(--paper-deep); border-radius:9px; overflow:hidden; }
   .bar i{ display:block; height:100%; background:var(--green); }
@@ -3142,7 +3155,7 @@
         excludeUsed: document.getElementById('genExcludeUsed').checked, excludeDisputed: document.getElementById('genExcludeDisputed').checked };
     }
     if(selected.length === 0){ alert('По заданным условиям не нашлось ни одного вопроса.'); return; }
-    previewItems = selected.map(q => ({ questionId: q.id, optionOrder: (q.options||[]).map((_,i)=>i) }));
+    previewItems = selected.map(q => ({ questionId: q.id, optionOrder: (q.options||[]).map((_,i)=>i), points:1, voided:false }));
     previewMeta = meta;
     renderPreview();
   }
@@ -3160,7 +3173,7 @@
     const candidates = pool.filter(q => !usedIds.has(q.id));
     if(candidates.length === 0){ alert('Нет других подходящих вопросов для замены.'); return; }
     const replacement = candidates[Math.floor(Math.random()*candidates.length)];
-    previewItems[idx] = { questionId: replacement.id, optionOrder: (replacement.options||[]).map((_,i)=>i) };
+    previewItems[idx] = { questionId: replacement.id, optionOrder: (replacement.options||[]).map((_,i)=>i), points:itemPoints(previewItems[idx]), voided:false };
     renderPreview();
   }
 
@@ -3173,6 +3186,14 @@
       <div class="field" style="max-width:360px; margin-bottom:16px;">
         <label style="display:block; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px;">Название теста</label>
         <input type="text" id="testNameInput" value="${escapeHtml(defaultTestName())}">
+      </div>
+      <div class="preview-score-tools">
+        <label>Всем вопросам<br><input id="allQuestionPoints" type="number" min="0.1" step="0.5" value="1"></label>
+        <button class="btn ghost" id="applyAllPoints" type="button">Применить всем</button>
+        <label>Лёгкие<br><input id="easyQuestionPoints" type="number" min="0.1" step="0.5" value="1"></label>
+        <label>Средние<br><input id="mediumQuestionPoints" type="number" min="0.1" step="0.5" value="2"></label>
+        <label>Сложные<br><input id="hardQuestionPoints" type="number" min="0.1" step="0.5" value="3"></label>
+        <button class="btn ghost" id="applyDifficultyPoints" type="button">По сложности</button>
       </div>
       <div class="preview-list" id="previewList"></div>
       <div style="display:flex; gap:10px;">
@@ -3188,7 +3209,9 @@
       row.className = 'preview-item';
       row.innerHTML = `
         <span class="idx">${idx+1}.</span>
-        <span class="txt">${escapeHtml(q ? q.question : '(вопрос удалён)')}</span>
+        <span class="txt">${escapeHtml(q ? (q.photoOnly?'Задание целиком на изображении':q.question) : '(вопрос удалён)')}</span>
+        <span class="status-badge">${q?(q.difficulty===1?'лёгкий':q.difficulty===3?'сложный':'средний'):'—'}</span>
+        <label style="font-size:10px">баллы <input class="item-points" type="number" min="0.1" step="0.5" value="${itemPoints(item)}"></label>
         ${usedSet.has(item.questionId) ? '<span class="badge-used">уже было</span>' : ''}
         <div class="mini-actions">
           <button type="button" data-act="up" title="Выше">↑</button>
@@ -3196,7 +3219,10 @@
           <button type="button" data-act="swap" title="Заменить">⟲</button>
           <button type="button" data-act="remove" title="Убрать">×</button>
         </div>
+        <div class="preview-extra">${q&&q.image?`<details><summary>Показать изображение задания</summary><img class="preview-thumb" src="${q.image}" alt="Изображение вопроса ${idx+1}"></details>`:'Изображения у вопроса нет'}</div>
       `;
+      row.querySelector('.item-points').onchange=e=>{item.points=positivePoints(e.target.value);};
+      row.querySelector('.preview-thumb')?.addEventListener('click',e=>window.open(e.currentTarget.src,'_blank'));
       row.querySelector('[data-act=up]').onclick = () => { if(idx>0){ [previewItems[idx-1],previewItems[idx]]=[previewItems[idx],previewItems[idx-1]]; renderPreview(); } };
       row.querySelector('[data-act=down]').onclick = () => { if(idx<previewItems.length-1){ [previewItems[idx+1],previewItems[idx]]=[previewItems[idx],previewItems[idx+1]]; renderPreview(); } };
       row.querySelector('[data-act=remove]').onclick = () => { previewItems.splice(idx,1); renderPreview(); };
@@ -3204,6 +3230,8 @@
       list.appendChild(row);
     });
     document.getElementById('btnCancelPreview').onclick = () => { previewItems = null; previewMeta = null; panel.hidden = true; };
+    document.getElementById('applyAllPoints').onclick=()=>{const n=positivePoints(document.getElementById('allQuestionPoints').value);previewItems.forEach(it=>it.points=n);renderPreview();};
+    document.getElementById('applyDifficultyPoints').onclick=()=>{const map={1:positivePoints(document.getElementById('easyQuestionPoints').value),2:positivePoints(document.getElementById('mediumQuestionPoints').value),3:positivePoints(document.getElementById('hardQuestionPoints').value)};previewItems.forEach(it=>it.points=map[questionById(it.questionId)?.difficulty||2]);renderPreview();};
     document.getElementById('btnFixTest').onclick = () => fixTest(false);
     document.getElementById('btnFixTestEconomy').onclick = () => {
       previewItems=paperEfficientOrder(previewItems);
@@ -3239,6 +3267,20 @@
     updateAvailCounter();
   }
 
+  function positivePoints(value){const n=Number(value);return Number.isFinite(n)&&n>0?Math.round(n*10)/10:1;}
+  function itemPoints(item){return positivePoints(item?.points??1);}
+  function itemIsVoided(item){return !!item?.voided;}
+  function testMaxPoints(t){return (t.items||[]).reduce((sum,item)=>sum+(itemIsVoided(item)?0:itemPoints(item)),0);}
+  function resultAnswers(result){return Array.isArray(result?.answers)?result.answers:Array.isArray(result?.omrAnswers)?result.omrAnswers:null;}
+  function scoreTestAnswers(t,answers){
+    const key=omrKey(t);let correct=0,total=0,pointsEarned=0,pointsPossible=0;
+    (t.items||[]).forEach((item,i)=>{if(itemIsVoided(item))return;total++;const points=itemPoints(item);pointsPossible+=points;if(answers?.[i]&&answers[i]===key[i]){correct++;pointsEarned+=points;}});
+    return{correctCount:correct,totalCount:total,pointsEarned:Math.round(pointsEarned*10)/10,pointsPossible:Math.round(pointsPossible*10)/10,scorePercent:pointsPossible?Math.round(pointsEarned/pointsPossible*1000)/10:0};
+  }
+  function recalculateTestResults(t){
+    sittings.filter(s=>s.generatedTestId===t.id).forEach(s=>(s.results||[]).forEach(r=>{const answers=resultAnswers(r);if(answers)Object.assign(r,scoreTestAnswers(t,answers));}));
+  }
+
   function createVariant(t){
     const baseId = t.variantOf || t.id;
     const base = genTests.find(x => x.id === baseId) || t;
@@ -3248,7 +3290,7 @@
     const shuffledItems = shuffleArray(t.items).map(it => {
       const q = questionById(it.questionId);
       const n = q ? (q.options||[]).length : it.optionOrder.length;
-      return { questionId: it.questionId, optionOrder: q?.photoOnly?[...Array(n).keys()]:shuffleArray([...Array(n).keys()]) };
+      return { ...it, questionId: it.questionId, optionOrder: q?.photoOnly?[...Array(n).keys()]:shuffleArray([...Array(n).keys()]), points:itemPoints(it), voided:!!it.voided };
     });
     const variant = {
       id: 't_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
@@ -3278,7 +3320,7 @@
       existingEl.innerHTML = '<div class="sitting-list">' + list.map(s => {
         const avg = s.results.length ? (s.results.reduce((a,r)=>a+(parseFloat(r.scorePercent)||0),0)/s.results.length).toFixed(1) : '—';
         return `<div class="sit-date">${new Date(s.date).toLocaleDateString('ru-RU')} · ${s.results.length} учен. · средний балл ${avg}%</div>` +
-          s.results.map(r => `<div>· ${escapeHtml(r.studentName)} — ${r.scorePercent}%${r.correctCount!=null?' ('+r.correctCount+'/'+r.totalCount+')':''}</div>`).join('') + `<button class="btn danger-text" type="button" data-delete-sitting="${s.id}">Удалить прохождение</button>`;
+          s.results.map(r => `<div>· ${escapeHtml(r.studentName)} — ${r.scorePercent}%${r.correctCount!=null?' ('+r.correctCount+'/'+r.totalCount+')':''}${r.pointsPossible!=null?' · '+r.pointsEarned+'/'+r.pointsPossible+' баллов':''}</div>`).join('') + `<button class="btn danger-text" type="button" data-delete-sitting="${s.id}">Удалить прохождение</button>`;
       }).join('') + '</div>';
     } else {
       existingEl.innerHTML = '<p class="manage-empty">Прохождений пока не записано.</p>';
@@ -3286,12 +3328,13 @@
     const rowsEl = el.querySelector('.sit-rows');
     function addRow(studentId, name){
       const row = document.createElement('div');
-      row.className = 'sitting-row';
+      row.className = 'sitting-person';
       if(studentId) row.dataset.studentId = studentId;
-      row.innerHTML = `<input type="text" class="sname" placeholder="Имя ученика" value="${escapeHtml(name||'')}"><input type="number" class="scorrect" min="0" placeholder="верных" title="Необязательно"><input type="number" class="stotal" min="1" value="${t.items.length}" placeholder="всего" title="Необязательно"><input type="number" class="sscore" min="0" max="100" placeholder="%">`;
-      const correct=row.querySelector('.scorrect'),total=row.querySelector('.stotal'),score=row.querySelector('.sscore');
-      const recalc=()=>{if(correct.value!==''&&parseFloat(total.value)>0)score.value=(parseFloat(correct.value)/parseFloat(total.value)*100).toFixed(1);};
-      correct.oninput=recalc; total.oninput=recalc;
+      row.innerHTML = `<div class="sitting-row"><input type="text" class="sname" placeholder="Имя ученика" value="${escapeHtml(name||'')}"><input type="number" class="scorrect" readonly placeholder="верных"><input type="number" class="stotal" readonly value="${t.items.filter(it=>!itemIsVoided(it)).length}"><input type="number" class="sscore" readonly placeholder="%"><button class="btn ghost show-answers" type="button">Ответы</button></div><div class="answer-entry" hidden>${t.items.map((it,i)=>`<label>№${i+1}${itemIsVoided(it)?' · аннул.':''}<select data-answer-q="${i}" ${itemIsVoided(it)?'disabled':''}><option value="">—</option>${OPTION_LETTERS.map(l=>`<option value="${l}">${l}</option>`).join('')}</select></label>`).join('')}</div><small class="points-summary" style="display:block;margin:-7px 0 8px;color:var(--ink-faint)"></small>`;
+      const answerBox=row.querySelector('.answer-entry'),correct=row.querySelector('.scorrect'),total=row.querySelector('.stotal'),score=row.querySelector('.sscore'),summary=row.querySelector('.points-summary');
+      const recalc=()=>{const answers=t.items.map((_,i)=>row.querySelector(`[data-answer-q="${i}"]`)?.value||'');const s=scoreTestAnswers(t,answers);correct.value=s.correctCount;total.value=s.totalCount;score.value=s.scorePercent;summary.textContent=`${s.pointsEarned} из ${s.pointsPossible} баллов`;};
+      row.querySelector('.show-answers').onclick=()=>answerBox.hidden=!answerBox.hidden;
+      row.querySelectorAll('[data-answer-q]').forEach(x=>x.onchange=recalc);recalc();
       rowsEl.appendChild(row);
     }
     const roster = t.groupId ? studentsInGroup(t.groupId) : [];
@@ -3303,10 +3346,10 @@
     el.querySelector('[data-act=addrow]').onclick = () => addRow();
     el.querySelector('[data-act=save]').onclick = () => {
       const date = el.querySelector('.sit-date-input').value || new Date().toISOString().slice(0,10);
-      const rows = Array.from(rowsEl.querySelectorAll('.sitting-row'));
-      const results = rows.map(r => { const cv=r.querySelector('.scorrect').value,tv=r.querySelector('.stotal').value; return { studentId: r.dataset.studentId || null, studentName: r.querySelector('.sname').value.trim(), scorePercent: parseFloat(r.querySelector('.sscore').value), correctCount:cv===''?null:parseFloat(cv), totalCount:cv===''?null:parseFloat(tv) }; })
-        .filter(r => r.studentName && !isNaN(r.scorePercent));
-      if(results.length === 0){ alert('Заполните хотя бы одного ученика с процентом.'); return; }
+      const rows = Array.from(rowsEl.querySelectorAll('.sitting-person'));
+      const results = rows.map(r => {const answers=t.items.map((_,i)=>r.querySelector(`[data-answer-q="${i}"]`)?.value||'');const scored=scoreTestAnswers(t,answers);return {studentId:r.dataset.studentId||null,studentName:r.querySelector('.sname').value.trim(),answers,...scored};})
+        .filter(r => r.studentName && r.answers.some(Boolean));
+      if(results.length === 0){ alert('Укажите ответы хотя бы одного ученика.'); return; }
       sittings.push({ id:'s_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), generatedTestId: t.id, groupId: t.groupId, date, results });
       saveSittings();
       if(currentDetailGroup && t.groupId === currentDetailGroup.id){
@@ -3465,16 +3508,33 @@
   function closeTestDetail(){currentDetailTest=null;document.getElementById('testDetailOverlay').hidden=true;document.getElementById('testDetailPage').hidden=true;}
   document.getElementById('btnCloseTestDetail').onclick=closeTestDetail;
   document.getElementById('testDetailOverlay').onclick=closeTestDetail;
+  function renderQuestionAnalytics(t,rows){
+    const key=omrKey(t),withAnswers=rows.filter(r=>resultAnswers(r));
+    if(!withAnswers.length)return'<p class="hint-good">Подробная аналитика появится после распознавания первого OMR-бланка или ручного ввода ответов.</p>';
+    return `<p class="section-hint">В анализе ответов: ${withAnswers.length} из ${rows.length} результатов. Старые результаты без сохранённых ответов не включены.</p>`+t.items.map((item,i)=>{
+      const q=questionById(item.questionId),counts=Object.fromEntries(OPTION_LETTERS.map(l=>[l,0])),wrongNames={};let blank=0;
+      withAnswers.forEach(r=>{const a=resultAnswers(r)?.[i];if(counts[a]!=null)counts[a]++;else blank++;if(a&&a!==key[i]){(wrongNames[a]??=[]).push(r.studentName||'Без имени');}});
+      const mostWrong=OPTION_LETTERS.filter(l=>l!==key[i]).sort((a,b)=>counts[b]-counts[a])[0],max=Math.max(1,...Object.values(counts));
+      return `<section class="question-analysis ${itemIsVoided(item)?'voided':''}"><b>№${i+1}. ${escapeHtml(q?(q.photoOnly?'Задание на изображении':q.question):'(вопрос удалён)')}</b> <span class="status-badge">${itemPoints(item)} балл.</span> ${itemIsVoided(item)?'<span class="status-badge status-archived">аннулирован — не учитывается</span>':''}
+        ${OPTION_LETTERS.map(l=>`<div class="answer-stat ${l===key[i]?'correct':'wrong'}"><b>${l}</b><span><i style="width:${counts[l]/max*100}%"></i>${wrongNames[l]?.length?`<small>${escapeHtml(wrongNames[l].join(', '))}</small>`:''}</span><b>${counts[l]}</b></div>`).join('')}
+        ${blank?`<small>Без ответа / двойная отметка: ${blank}</small>`:''}
+        ${mostWrong&&counts[mostWrong]?`<p class="section-hint">Чаще всего ошибочно выбирали ${mostWrong}: ${counts[mostWrong]} чел. Это возможная загвоздка для разбора на уроке.</p>`:''}</section>`;
+    }).join('');
+  }
   function renderTestDetail(t,tab){
     const box=document.getElementById('testDetailContent'),group=t.groupId?groups.find(g=>g.id===t.groupId):null,baseId=t.variantOf||t.id;
     const variants=genTests.filter(x=>x.id===baseId||x.variantOf===baseId).sort((a,b)=>a.seq-b.seq),runs=sittings.filter(s=>s.generatedTestId===t.id),rows=runs.flatMap(s=>s.results||[]),avg=rows.length?rows.reduce((a,r)=>a+(parseFloat(r.scorePercent)||0),0)/rows.length:null;
     box.innerHTML=`<p class="eyebrow">Тест №${t.seq}</p><h2>${escapeHtml(t.name)}${t.variantLabel?' · вариант '+escapeHtml(t.variantLabel):''}</h2><p class="section-hint">${group?escapeHtml(group.name):'Без группы'} · ${t.items.length} вопросов · ${t.voided?'отменён':'активен'}</p><div class="detail-tabs">${[['questions','Вопросы'],['variants','Варианты'],['groups','Группа'],['results','Результаты'],['analytics','Аналитика']].map(x=>`<button data-tab="${x[0]}" class="${tab===x[0]?'active':''}">${x[1]}</button>`).join('')}</div><div id="detailTabBody"></div>`;
     const body=document.getElementById('detailTabBody');
-    if(tab==='questions')body.innerHTML='<ol>'+t.items.map(it=>{const q=questionById(it.questionId);return `<li style="margin-bottom:10px"><b>${q?escapeHtml(q.question):'(вопрос удалён)'}</b>${q&&q.tags&&q.tags.length?'<br><small>'+q.tags.map(escapeHtml).join(', ')+'</small>':''}</li>`;}).join('')+'</ol>';
+    if(tab==='questions'){
+      body.innerHTML=t.items.map((it,i)=>{const q=questionById(it.questionId);return `<div class="test-question-row ${itemIsVoided(it)?'voided':''}"><b>№${i+1}. ${q?escapeHtml(q.photoOnly?'Задание целиком на изображении':q.question):'(вопрос удалён)'}</b>${q&&q.tags&&q.tags.length?'<br><small>'+q.tags.map(escapeHtml).join(', ')+'</small>':''}${q&&q.image?`<details><summary>Показать изображение</summary><img class="preview-thumb" src="${q.image}" alt="Вопрос ${i+1}"></details>`:''}<div class="action-row" style="margin-top:8px"><span class="status-badge">${q?(q.difficulty===1?'лёгкий':q.difficulty===3?'сложный':'средний'):'—'}</span><label>Баллы <input data-test-points="${i}" type="number" min="0.1" step="0.5" value="${itemPoints(it)}" style="width:65px" ${isWorkspaceOwner?'':'disabled'}></label>${isWorkspaceOwner?`<button class="btn ${itemIsVoided(it)?'primary':'danger-text'}" data-toggle-void="${i}">${itemIsVoided(it)?'Вернуть в расчёт':'Аннулировать вопрос'}</button>`:''}${itemIsVoided(it)?'<span class="status-badge status-archived">не учитывается</span>':''}</div></div>`;}).join('');
+      body.querySelectorAll('[data-test-points]').forEach(input=>input.onchange=()=>{const item=t.items[+input.dataset.testPoints];item.points=positivePoints(input.value);recalculateTestResults(t);saveTests();saveSittings();renderTestDetail(t,'questions');});
+      body.querySelectorAll('[data-toggle-void]').forEach(button=>button.onclick=()=>{const item=t.items[+button.dataset.toggleVoid];item.voided=!item.voided;recalculateTestResults(t);saveTests();saveSittings();renderTestDetail(t,'questions');});
+    }
     if(tab==='variants')body.innerHTML=variants.map(v=>`<div class="student-row"><span class="sname">${v.variantLabel?'Вариант '+escapeHtml(v.variantLabel):'Основной тест'}</span><span class="avg">№${v.seq}</span><button class="btn ghost" data-open-variant="${v.id}">Открыть</button></div>`).join('');
     if(tab==='groups')body.innerHTML=group?`<div class="dash-card"><div class="label">Назначенная группа</div><div class="value" style="font-size:24px">${escapeHtml(group.name)}</div><div class="sub">${studentsInGroup(group.id).length} учеников · средний результат ${groupAverage(group.id)===null?'—':groupAverage(group.id).toFixed(1)+'%'}</div></div>`:'<p class="manage-empty">Тест пока не назначен группе.</p>';
     if(tab==='results'){body.innerHTML='<div id="detailSitting"></div>';renderSittingBlock(document.getElementById('detailSitting'),t);}
-    if(tab==='analytics')body.innerHTML=`<div class="dash-grid"><div class="dash-card"><div class="label">Прохождений</div><div class="value">${runs.length}</div></div><div class="dash-card"><div class="label">Результатов</div><div class="value">${rows.length}</div></div><div class="dash-card"><div class="label">Средний балл</div><div class="value">${avg===null?'—':avg.toFixed(1)+'%'}</div></div><div class="dash-card"><div class="label">Диапазон</div><div class="value" style="font-size:22px">${rows.length?Math.min(...rows.map(r=>r.scorePercent))+'–'+Math.max(...rows.map(r=>r.scorePercent))+'%':'—'}</div></div></div><p class="hint-good">Аналитика по отдельным вопросам появится позже, когда будет способ распознавать заполненные бланки или вводить ответы вручную.</p>`;
+    if(tab==='analytics')body.innerHTML=`<div class="dash-grid"><div class="dash-card"><div class="label">Прохождений</div><div class="value">${runs.length}</div></div><div class="dash-card"><div class="label">Результатов</div><div class="value">${rows.length}</div></div><div class="dash-card"><div class="label">Средний балл</div><div class="value">${avg===null?'—':avg.toFixed(1)+'%'}</div></div><div class="dash-card"><div class="label">Максимум баллов</div><div class="value">${testMaxPoints(t)}</div></div></div>${renderQuestionAnalytics(t,rows)}`;
     box.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>renderTestDetail(t,b.dataset.tab));
     box.querySelectorAll('[data-open-variant]').forEach(b=>b.onclick=()=>{const v=genTests.find(x=>x.id===b.dataset.openVariant);if(v)renderTestDetail(v,'questions');});
   }
@@ -3681,8 +3741,8 @@
   function omrLum(data,x,y,r){let sum=0,n=0;for(let yy=y-r;yy<=y+r;yy++)for(let xx=x-r;xx<=x+r;xx++)if((xx-x)**2+(yy-y)**2<r*r){const i=(Math.round(yy)*data.width+Math.round(xx))*4;sum+=.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2];n++;}return sum/n;}
   function recognizeOmr(){const t=omrSelected('omrCheckTest');if(!t)return alert('Выберите тест.');if(omrPoints.length!==4)return alert('Нужно указать четыре угловых маркера.');omrWarped=warpOmr(t);const data=omrWarped.getContext('2d').getImageData(0,0,OMR_W,OMR_H),L=omrLayout(t),bv=L.bubbles.map(b=>omrLum(data,b.x,b.y,8)),cv=L.code.map(b=>omrLum(data,b.x,b.y,5)),sorted=[...bv].sort((a,b)=>a-b),threshold=Math.min(190,(sorted[Math.floor(sorted.length*.25)]+sorted[Math.floor(sorted.length*.75)])/2),answers=Array(t.items.length).fill('');for(let q=0;q<t.items.length;q++){const marks=L.bubbles.filter(b=>b.q===q).filter(b=>bv[L.bubbles.indexOf(b)]<threshold*.93);answers[q]=marks.length===1?marks[0].l:marks.length>1?'conflict':'';}let code='';for(let col=0;col<4;col++){const rows=L.code.filter(b=>b.d===col),vals=rows.map(b=>cv[L.code.indexOf(b)]),min=Math.min(...vals),idx=vals.indexOf(min);code+=min<Math.min(205,vals.reduce((a,b)=>a+b,0)/10-12)?idx:'?';}omrDetection={t,L,answers,code,key:omrKey(t)};omrManual={};renderOmrReview();}
   document.getElementById('omrRecognize').onclick=recognizeOmr;function effectiveOmr(i){return Object.hasOwn(omrManual,i)?omrManual[i]:omrDetection.answers[i];}
-  function renderOmrReview(){const d=omrDetection,canvas=document.getElementById('omrReview'),ctx=canvas.getContext('2d');canvas.width=OMR_W;canvas.height=OMR_H;ctx.drawImage(omrWarped,0,0);let correct=0;d.L.code.forEach(b=>{if(d.code[b.d]!=='?'&&+d.code[b.d]===b.n){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2);ctx.strokeStyle='#f0b400';ctx.lineWidth=5;ctx.stroke();}});d.L.bubbles.forEach(b=>{const a=effectiveOmr(b.q);if(a===b.l){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2);ctx.strokeStyle=a===d.key[b.q]?'#00a651':'#e32020';ctx.lineWidth=5;ctx.stroke();}});document.getElementById('omrAnswerList').innerHTML=Array.from({length:d.t.items.length},(_,i)=>{const a=effectiveOmr(i),ok=a&&a===d.key[i];if(ok)correct++;return`<div class="omr-answer ${ok?'ok':a?'bad':''}"><b>№${i+1}</b><span>${a==='conflict'?'двойная':a||'пусто'}</span><select data-omr-q="${i}"><option value="">—</option>${OPTION_LETTERS.map(l=>`<option value="${l}" ${a===l?'selected':''}>${l}</option>`).join('')}</select></div>`;}).join('');document.querySelectorAll('[data-omr-q]').forEach(el=>el.onchange=()=>{omrManual[+el.dataset.omrQ]=el.value;renderOmrReview();});const student=students.find(s=>studentCode(s)===d.code&&activeMembership(s)?.groupId===d.t.groupId),pct=Math.round(correct/d.t.items.length*100);document.getElementById('omrIdentity').innerHTML=`Код: <input id="omrReviewCode" maxlength="4" value="${escapeHtml(d.code)}" style="width:80px;padding:6px"> <button class="btn ghost" id="omrApplyCode">Применить</button> · <span>${student?escapeHtml(studentDisplayName(student)):'<b style="color:var(--error)">ученик не найден</b>'}</span>`;document.getElementById('omrApplyCode').onclick=()=>{const code=document.getElementById('omrReviewCode').value.trim();if(!/^\d{4}$/.test(code))return alert('Введите четыре цифры, например 0001.');d.code=code;renderOmrReview();};document.getElementById('omrScore').textContent=`${correct} / ${d.t.items.length} · ${pct}%`;d.student=student;d.correct=correct;d.percent=pct;document.getElementById('omrReviewCard').hidden=false;}
-  document.getElementById('omrSaveResult').onclick=()=>{const d=omrDetection;if(!d?.student)return alert('Сначала укажите код ученика из группы этого теста.');const date=new Date().toISOString().slice(0,10);let sitting=sittings.find(s=>s.generatedTestId===d.t.id&&s.groupId===d.t.groupId&&s.date===date);if(!sitting){sitting={id:'s_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),generatedTestId:d.t.id,groupId:d.t.groupId,date,results:[]};sittings.push(sitting);}const prior=(sitting.results||[]).findIndex(r=>r.studentId===d.student.id);if(prior>=0&&!confirm('У этого ученика уже есть результат за сегодня. Заменить его?'))return;const result={studentId:d.student.id,studentName:studentDisplayName(d.student),scorePercent:d.percent,correctCount:d.correct,totalCount:d.t.items.length,omrCode:d.code,omrAnswers:Array.from({length:d.t.items.length},(_,i)=>effectiveOmr(i)),omrCheckedAt:new Date().toISOString()};if(prior>=0)sitting.results[prior]=result;else sitting.results.push(result);saveSittings();document.getElementById('omrReviewCard').hidden=true;alert('Результат сохранён и отправлен в общую базу.');};
+  function renderOmrReview(){const d=omrDetection,canvas=document.getElementById('omrReview'),ctx=canvas.getContext('2d');canvas.width=OMR_W;canvas.height=OMR_H;ctx.drawImage(omrWarped,0,0);d.L.code.forEach(b=>{if(d.code[b.d]!=='?'&&+d.code[b.d]===b.n){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2);ctx.strokeStyle='#f0b400';ctx.lineWidth=5;ctx.stroke();}});d.L.bubbles.forEach(b=>{const a=effectiveOmr(b.q);if(a===b.l){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2);ctx.strokeStyle=itemIsVoided(d.t.items[b.q])?'#777':a===d.key[b.q]?'#00a651':'#e32020';ctx.lineWidth=5;ctx.stroke();}});const answers=Array.from({length:d.t.items.length},(_,i)=>effectiveOmr(i)),scored=scoreTestAnswers(d.t,answers);document.getElementById('omrAnswerList').innerHTML=answers.map((a,i)=>{const voided=itemIsVoided(d.t.items[i]),ok=!voided&&a&&a===d.key[i];return`<div class="omr-answer ${voided?'':ok?'ok':a?'bad':''}"><b>№${i+1}</b><span>${a==='conflict'?'двойная':a||'пусто'} · ${voided?'не учитывается':itemPoints(d.t.items[i])+' балл.'}</span><select data-omr-q="${i}"><option value="">—</option>${OPTION_LETTERS.map(l=>`<option value="${l}" ${a===l?'selected':''}>${l}</option>`).join('')}</select></div>`;}).join('');document.querySelectorAll('[data-omr-q]').forEach(el=>el.onchange=()=>{omrManual[+el.dataset.omrQ]=el.value;renderOmrReview();});const student=students.find(s=>studentCode(s)===d.code&&activeMembership(s)?.groupId===d.t.groupId);document.getElementById('omrIdentity').innerHTML=`Код: <input id="omrReviewCode" maxlength="4" value="${escapeHtml(d.code)}" style="width:80px;padding:6px"> <button class="btn ghost" id="omrApplyCode">Применить</button> · <span>${student?escapeHtml(studentDisplayName(student)):'<b style="color:var(--error)">ученик не найден</b>'}</span>`;document.getElementById('omrApplyCode').onclick=()=>{const code=document.getElementById('omrReviewCode').value.trim();if(!/^\d{4}$/.test(code))return alert('Введите четыре цифры, например 0001.');d.code=code;renderOmrReview();};document.getElementById('omrScore').textContent=`${scored.pointsEarned} / ${scored.pointsPossible} баллов · ${scored.correctCount}/${scored.totalCount} верно · ${scored.scorePercent}%`;d.student=student;d.scored=scored;d.reviewAnswers=answers;document.getElementById('omrReviewCard').hidden=false;}
+  document.getElementById('omrSaveResult').onclick=()=>{const d=omrDetection;if(!d?.student)return alert('Сначала укажите код ученика из группы этого теста.');const date=new Date().toISOString().slice(0,10);let sitting=sittings.find(s=>s.generatedTestId===d.t.id&&s.groupId===d.t.groupId&&s.date===date);if(!sitting){sitting={id:'s_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),generatedTestId:d.t.id,groupId:d.t.groupId,date,results:[]};sittings.push(sitting);}const prior=(sitting.results||[]).findIndex(r=>r.studentId===d.student.id);if(prior>=0&&!confirm('У этого ученика уже есть результат за сегодня. Заменить его?'))return;const answers=d.reviewAnswers||Array.from({length:d.t.items.length},(_,i)=>effectiveOmr(i)),result={studentId:d.student.id,studentName:studentDisplayName(d.student),...scoreTestAnswers(d.t,answers),omrCode:d.code,answers,omrAnswers:answers,omrCheckedAt:new Date().toISOString()};if(prior>=0)sitting.results[prior]=result;else sitting.results.push(result);saveSittings();document.getElementById('omrReviewCard').hidden=true;alert('Результат сохранён и отправлен в общую базу.');};
 
   function suggestedTestTime(questionCount){
     return Math.min(60, Math.max(2, Math.round((questionCount||1) * 60 / 40)));
@@ -3853,7 +3913,7 @@
   let currentPreviewTest=null, currentPreviewPreset='custom', currentPreviewOpts=null;
   function previewOptions(t,key){
     const p=TEST_PRESETS[key]||TEST_PRESETS.custom;
-    return {columns:2,time:p.time||suggestedTestTime(t.items.length),points:p.points||suggestedTestPoints(t.items.length),instruction:'В этом разделе Вам нужно ответить на вопросы и решить несколько задач. Графики, рисунки и схемы дают необходимую информацию для ответов.',watermark:isWorkspaceOwner?'':TEACHER_WATERMARK,includeSheet:false,includeKey:false};
+    return {columns:2,time:p.time||suggestedTestTime(t.items.length),points:testMaxPoints(t),instruction:'В этом разделе Вам нужно ответить на вопросы и решить несколько задач. Графики, рисунки и схемы дают необходимую информацию для ответов.',watermark:isWorkspaceOwner?'':TEACHER_WATERMARK,includeSheet:false,includeKey:false};
   }
   async function openA4Preview(t){
     currentPreviewTest=t;currentPreviewPreset=t.preset&&TEST_PRESETS[t.preset]?t.preset:'custom';

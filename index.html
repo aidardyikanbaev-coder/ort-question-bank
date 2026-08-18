@@ -678,6 +678,15 @@
   .teacher-readonly #groupDetailPage input,.teacher-readonly #groupDetailPage select,.teacher-readonly #groupDetailPage textarea{pointer-events:none;background:#f3f1e9}
   .teacher-readonly #studentsView>.inline-form{display:none!important}
   .teacher-readonly #groupsView>.inline-form,.teacher-readonly #groupsView .archive-switch{display:none!important}
+  .omr-grid{display:grid;grid-template-columns:minmax(300px,.8fr) minmax(360px,1.2fr);gap:18px;align-items:start}
+  .omr-card{background:var(--paper-raised);border:1px solid var(--line);padding:18px;margin-bottom:18px}
+  .omr-card h2,.omr-card h3{margin:0 0 7px;font-family:'Fraunces',serif}.omr-card p{color:var(--ink-soft);font-size:12.5px;line-height:1.45}
+  .omr-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;align-items:end}.omr-controls label{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin-bottom:5px}.omr-controls select{width:100%;padding:9px;border:1px solid var(--line);background:#fff}
+  .omr-canvas-wrap{background:#ddd7c8;padding:10px;text-align:center;overflow:auto}.omr-canvas-wrap canvas{display:block;max-width:100%;height:auto;margin:auto;background:#fff;border:1px solid var(--line)}
+  .omr-video{display:none;width:100%;max-height:520px;margin-top:12px;background:#111}.omr-status{padding:9px 11px;border-left:4px solid var(--line);background:#f3efe5;font-size:12.5px}.omr-status.ok{border-color:var(--green)}.omr-status.warn{border-color:#ad6f13}.omr-status.bad{border-color:var(--error)}
+  .omr-review{display:grid;grid-template-columns:minmax(280px,1.2fr) minmax(260px,.8fr);gap:14px}.omr-answers{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:5px;max-height:720px;overflow:auto}.omr-answer{border:1px solid var(--line);padding:6px;display:flex;gap:7px;align-items:center;font-size:12px}.omr-answer.ok{border-left:4px solid var(--green)}.omr-answer.bad{border-left:4px solid var(--error)}.omr-answer select{margin-left:auto}.omr-score{font:700 23px 'Fraunces',serif;color:var(--stamp)}
+  .omr-print-page{width:210mm;height:297mm;display:grid;place-items:center;background:#fff;page-break-after:auto}.omr-print-page canvas{width:210mm;height:297mm;display:block}
+  @media(max-width:800px){.omr-grid,.omr-review{grid-template-columns:1fr}}
   @media(max-width:800px){.users-grid{grid-template-columns:1fr}.user-card{flex-direction:column}.user-card .action-row{width:100%}}
 </style>
 </head>
@@ -724,6 +733,7 @@
     <button class="nav-tab" data-view="attendance">Посещаемость</button>
     <button class="nav-tab" data-view="generator">Генератор тестов</button>
     <button class="nav-tab" data-view="tests">Тесты</button>
+    <button class="nav-tab" data-view="omr">Листы ответов · OMR</button>
     <button class="nav-tab" data-view="data">Данные и импорт</button>
     <button class="nav-tab" data-view="users" id="usersNav" hidden>Пользователи</button>
     <button class="nav-tab" data-view="guide">Инструкция</button>
@@ -787,6 +797,39 @@
   <section id="attendanceView" hidden></section>
   <section id="generatorView" hidden></section>
   <section id="testsListView" hidden></section>
+  <section id="omrView" hidden>
+    <div class="section-head"><div><h2>Листы ответов и OMR-проверка</h2><p>Сформируйте бланк, затем загрузите фото или используйте камеру для автоматического чтения.</p></div></div>
+    <div class="omr-grid">
+      <div>
+        <div class="omr-card">
+          <h3>1. Сформировать лист ответов</h3>
+          <p>Четыре чёрных маркера помогают выровнять фотографию. Номер ученика состоит из четырёх цифр.</p>
+          <div class="omr-controls"><div><label>Тест</label><select id="omrPrintTest"></select></div><div><label>Ученик</label><select id="omrPrintStudent"></select></div></div>
+          <div class="action-row" style="margin-top:12px"><button class="btn primary" id="omrMakeSheet">Сформировать</button><button class="btn" id="omrPrintSheet">Печать / PDF</button><button class="btn ghost" id="omrSavePng">Скачать PNG</button></div>
+        </div>
+        <div class="omr-canvas-wrap"><canvas id="omrSheet" width="1050" height="1485"></canvas></div>
+      </div>
+      <div>
+        <div class="omr-card">
+          <h3>2. Проверить заполненный лист</h3>
+          <div class="omr-controls"><div><label>Тест</label><select id="omrCheckTest"></select></div></div>
+          <div class="action-row" style="margin-top:12px"><label class="btn primary">Загрузить фото / скан<input id="omrFile" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" hidden></label><button class="btn ghost" id="omrCamera">Открыть камеру</button><button class="btn primary" id="omrShot" hidden>Сфотографировать</button></div>
+          <video class="omr-video" id="omrVideo" playsinline></video>
+        </div>
+        <div class="omr-card" id="omrScanCard" hidden>
+          <div class="omr-status" id="omrScanStatus">Поиск маркеров…</div>
+          <div class="action-row" style="margin:10px 0"><button class="btn ghost" id="omrAutoMarkers">Найти автоматически</button><button class="btn ghost" id="omrResetMarkers">Указать углы вручную</button><button class="btn primary" id="omrRecognize">Распознать</button></div>
+          <p>Точки можно перетаскивать. Вручную укажите: левый верхний, правый верхний, левый нижний, правый нижний маркер.</p>
+          <div class="omr-canvas-wrap"><canvas id="omrScan"></canvas></div>
+        </div>
+      </div>
+    </div>
+    <div class="omr-card" id="omrReviewCard" hidden>
+      <div class="section-head"><div><h2>Проверка распознавания</h2><div id="omrIdentity"></div></div><div class="omr-score" id="omrScore"></div></div>
+      <div class="omr-review"><div class="omr-canvas-wrap"><canvas id="omrReview"></canvas></div><div class="omr-answers" id="omrAnswerList"></div></div>
+      <div class="action-row" style="margin-top:12px"><button class="btn primary" id="omrSaveResult">Сохранить результат</button></div>
+    </div>
+  </section>
   <section id="dashboardView" hidden></section>
   <section id="dataView" hidden></section>
   <section id="usersView" hidden></section>
@@ -2320,7 +2363,7 @@
 
   // ============ NAV ============
   const navTabs = document.querySelectorAll('.nav-tab');
-  const appViews = { dashboard: document.getElementById('dashboardView'), catalog: document.getElementById('catalogView'), groups: document.getElementById('groupsView'), students:document.getElementById('studentsView'), attendance:document.getElementById('attendanceView'), generator: document.getElementById('generatorView'), tests: document.getElementById('testsListView'), data: document.getElementById('dataView'), users:document.getElementById('usersView'), guide: document.getElementById('guideView') };
+  const appViews = { dashboard: document.getElementById('dashboardView'), catalog: document.getElementById('catalogView'), groups: document.getElementById('groupsView'), students:document.getElementById('studentsView'), attendance:document.getElementById('attendanceView'), generator: document.getElementById('generatorView'), tests: document.getElementById('testsListView'), omr:document.getElementById('omrView'), data: document.getElementById('dataView'), users:document.getElementById('usersView'), guide: document.getElementById('guideView') };
   const pageTitle = document.getElementById('pageTitle');
   const pageSubtitle = document.getElementById('pageSubtitle');
   const viewTitles = {
@@ -2331,6 +2374,7 @@
     attendance:['Посещаемость','Журнал занятий по группам'],
     generator: ['Генератор тестов', 'Сборка нового теста из банка вопросов'],
     tests: ['Тесты', 'Тесты, варианты и прохождения'],
+    omr: ['Листы ответов · OMR', 'Печать бланков и автоматическое чтение ответов'],
     data: ['Данные и импорт', 'Резервные копии, массовый импорт и дубликаты'],
     users: ['Пользователи', 'Доступ преподавателей и журнал активности'],
     guide: ['Инструкция', 'Как подготовить Word или PDF и перенести вопросы']
@@ -2350,6 +2394,7 @@
       if(view === 'attendance') renderAttendanceView();
       if(view === 'generator') renderGeneratorView();
       if(view === 'tests') renderTestsListView();
+      if(view === 'omr') renderOmrView();
       if(view === 'dashboard') renderDashboardView();
       if(view === 'data') renderDataView();
       if(view === 'users') renderUsersView();
@@ -3473,6 +3518,67 @@
     const order = (item.optionOrder && item.optionOrder.length) ? item.optionOrder : (q.options||[]).map((_,i)=>i);
     return { q, opts: order.map(idx => q.options[idx]).filter(Boolean) };
   }
+
+  // ============ OMR ANSWER SHEETS ============
+  const OMR_W=1050,OMR_H=1485;
+  let omrSource=null,omrPoints=[],omrDrag=-1,omrWarped=null,omrDetection=null,omrManual={},omrStream=null;
+  const omrScan=document.getElementById('omrScan'),omrScanCtx=omrScan.getContext('2d');
+  function omrTests(){return genTests.filter(t=>!t.voided&&t.groupId&&Array.isArray(t.items)&&t.items.length&&t.items.length<=40&&t.items.every(i=>questionById(i.questionId)));}
+  function omrTestOptions(selected){const list=omrTests();return list.length?list.map(t=>`<option value="${t.id}" ${t.id===selected?'selected':''}>${escapeHtml(t.name)}${t.variantLabel?' · вариант '+escapeHtml(t.variantLabel):''} · ${t.items.length} вопр.</option>`).join(''):'<option value="">Нет доступных тестов с группой</option>';}
+  function omrSelected(id){return genTests.find(t=>t.id===document.getElementById(id).value)||null;}
+  function omrStudentOptions(t,selected){const roster=t?studentsInGroup(t.groupId):[];return '<option value="">Общий бланк — ученик кодирует номер</option>'+roster.slice().sort((a,b)=>studentDisplayName(a).localeCompare(studentDisplayName(b),'ru')).map(s=>`<option value="${s.id}" ${s.id===selected?'selected':''}>${studentCode(s)} — ${escapeHtml(studentDisplayName(s))}</option>`).join('');}
+  function renderOmrView(){
+    const p=document.getElementById('omrPrintTest'),c=document.getElementById('omrCheckTest'),oldP=p.value,oldC=c.value;
+    p.innerHTML=omrTestOptions(oldP);c.innerHTML=omrTestOptions(oldC||oldP);
+    if(oldP&&omrTests().some(t=>t.id===oldP))p.value=oldP;if(oldC&&omrTests().some(t=>t.id===oldC))c.value=oldC;
+    const student=document.getElementById('omrPrintStudent'),oldS=student.value;student.innerHTML=omrStudentOptions(omrSelected('omrPrintTest'),oldS);
+    drawOmrSheet();
+  }
+  function omrLayout(t){
+    const marker=20,ys=[220,430,660,890,1120,1405],xs=[64,525,986],bubbles=[],code=[],infos=t.items.map(orderedOptionsFor),opts=Math.max(1,...infos.map(x=>Math.min(4,x?.opts.length||4)));
+    for(let d=0;d<4;d++)for(let n=0;n<10;n++)code.push({d,n,x:n<5?170+n*43:660+(n-5)*43,y:250+d*43,r:15});
+    const leftCount=Math.ceil(t.items.length/2);
+    for(let i=0;i<t.items.length;i++){const col=i<leftCount?0:1,idx=col?i-leftCount:i,x0=col?650:190,y=470+idx*42+Math.floor(idx/5)*22;for(let o=0;o<opts;o++)bubbles.push({q:i,o,l:OPTION_LETTERS[o],x:x0+o*43,y,r:15});}
+    return{marker,ys,xs,bubbles,code,opts};
+  }
+  function omrKey(t){return t.items.map(item=>{const info=orderedOptionsFor(item);if(!info)return'';const idx=info.opts.findIndex(o=>o&&o.correct);return idx>=0?OPTION_LETTERS[idx]:'';});}
+  function drawOmrSheet(){
+    const canvas=document.getElementById('omrSheet'),ctx=canvas.getContext('2d'),t=omrSelected('omrPrintTest'),student=students.find(s=>s.id===document.getElementById('omrPrintStudent').value);
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,OMR_W,OMR_H);if(!t){ctx.fillStyle='#333';ctx.font='24px Arial';ctx.fillText('Выберите тест с назначенной группой',60,80);return;}
+    const group=groups.find(g=>g.id===t.groupId),L=omrLayout(t),code=student?studentCode(student):'____';ctx.fillStyle='#111';L.ys.forEach(y=>L.xs.forEach(x=>ctx.fillRect(x-L.marker/2,y-L.marker/2,L.marker,L.marker)));
+    ctx.strokeStyle='#111';ctx.lineWidth=2;ctx.strokeRect(150,25,750,175);ctx.font='19px Arial';ctx.fillText('Имя: '+(student?studentDisplayName(student):'____________________________________________'),170,60);ctx.fillText('Тест: '+t.name+(t.variantLabel?' · вариант '+t.variantLabel:''),170,96);ctx.fillText('Дата: __________________   Группа: '+(group?.name||''),170,132);ctx.font='bold 19px monospace';ctx.fillText('№ ученика: '+code,170,172);
+    ctx.font='bold 13px Arial';for(let d=0;d<4;d++)ctx.fillText('Цифра '+(d+1),95,255+d*43);ctx.textAlign='center';ctx.textBaseline='middle';
+    L.code.forEach(b=>{ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.strokeStyle='#111';ctx.lineWidth=1.4;ctx.stroke();ctx.font='13px Arial';ctx.fillStyle='#111';ctx.fillText(b.n,b.x,b.y);if(student&&+studentCode(student)[b.d]===b.n){ctx.beginPath();ctx.arc(b.x,b.y,b.r-3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.fillText(b.n,b.x,b.y);ctx.fillStyle='#111';}});
+    ctx.textAlign='left';ctx.textBaseline='alphabetic';ctx.strokeStyle='#aaa';ctx.beginPath();ctx.moveTo(105,415);ctx.lineTo(945,415);ctx.stroke();ctx.fillStyle='#111';ctx.font='bold 13px Arial';ctx.fillText('ОТВЕТЫ',125,445);ctx.textAlign='center';ctx.textBaseline='middle';
+    L.bubbles.forEach(b=>{ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.strokeStyle='#111';ctx.lineWidth=1.4;ctx.stroke();ctx.font='13px Arial';ctx.fillStyle='#111';ctx.fillText(b.l,b.x,b.y);});ctx.textAlign='left';ctx.textBaseline='alphabetic';ctx.font='bold 15px monospace';for(let i=0;i<t.items.length;i++){const b=L.bubbles.find(x=>x.q===i);if(b)ctx.fillText((i+1)+'.',b.x-48,b.y+5);}ctx.font='11px Arial';ctx.fillStyle='#555';ctx.fillText('Закрашивайте один кружок полностью. Не сгибайте лист; все чёрные квадраты должны быть видны.',150,1470);
+  }
+  document.getElementById('omrPrintTest').onchange=()=>{const s=document.getElementById('omrPrintStudent');s.innerHTML=omrStudentOptions(omrSelected('omrPrintTest'),'');drawOmrSheet();};
+  document.getElementById('omrPrintStudent').onchange=drawOmrSheet;document.getElementById('omrMakeSheet').onclick=drawOmrSheet;
+  document.getElementById('omrSavePng').onclick=()=>{drawOmrSheet();const a=document.createElement('a');a.download='OMR-лист-ответов.png';a.href=document.getElementById('omrSheet').toDataURL('image/png');a.click();};
+  document.getElementById('omrPrintSheet').onclick=async()=>{drawOmrSheet();const area=document.getElementById('printArea'),page=document.createElement('div'),copy=document.createElement('canvas'),src=document.getElementById('omrSheet');area.innerHTML='';page.className='omr-print-page';copy.width=OMR_W;copy.height=OMR_H;copy.getContext('2d').drawImage(src,0,0);page.appendChild(copy);area.appendChild(page);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));window.print();};
+  document.getElementById('omrFile').onchange=e=>{const file=e.target.files[0];if(file)loadOmrImage(URL.createObjectURL(file));e.target.value='';};
+  function loadOmrImage(url){const image=new Image();image.onload=()=>{omrSource=image;omrScan.width=Math.min(1000,image.naturalWidth);omrScan.height=Math.round(image.naturalHeight*omrScan.width/image.naturalWidth);omrScanCtx.drawImage(image,0,0,omrScan.width,omrScan.height);document.getElementById('omrScanCard').hidden=false;document.getElementById('omrReviewCard').hidden=true;autoFindOmrMarkers();URL.revokeObjectURL(url);};image.src=url;}
+  document.getElementById('omrCamera').onclick=async()=>{try{omrStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});const v=document.getElementById('omrVideo');v.srcObject=omrStream;v.style.display='block';document.getElementById('omrShot').hidden=false;await v.play();}catch(error){alert('Камера недоступна. Разрешите доступ в браузере или загрузите фотографию.');}};
+  document.getElementById('omrShot').onclick=()=>{const v=document.getElementById('omrVideo'),c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);omrStream?.getTracks().forEach(x=>x.stop());v.style.display='none';document.getElementById('omrShot').hidden=true;loadOmrImage(c.toDataURL('image/jpeg',.95));};
+  function autoFindOmrMarkers(){
+    if(!omrSource)return;const off=document.createElement('canvas'),max=700,scale=Math.min(1,max/omrSource.naturalWidth);off.width=Math.round(omrSource.naturalWidth*scale);off.height=Math.round(omrSource.naturalHeight*scale);const ctx=off.getContext('2d');ctx.drawImage(omrSource,0,0,off.width,off.height);const data=ctx.getImageData(0,0,off.width,off.height),seen=new Uint8Array(off.width*off.height),cand=[],dark=i=>.299*data.data[i*4]+.587*data.data[i*4+1]+.114*data.data[i*4+2]<70;
+    for(let y=2;y<off.height-2;y++)for(let x=2;x<off.width-2;x++){const p=y*off.width+x;if(seen[p]||!dark(p))continue;const queue=[p];let minx=x,maxx=x,miny=y,maxy=y,count=0;seen[p]=1;for(let z=0;z<queue.length&&queue.length<8000;z++){const a=queue[z],ay=Math.floor(a/off.width),ax=a-ay*off.width;count++;minx=Math.min(minx,ax);maxx=Math.max(maxx,ax);miny=Math.min(miny,ay);maxy=Math.max(maxy,ay);[a-1,a+1,a-off.width,a+off.width].forEach(n=>{if(n>0&&n<seen.length&&!seen[n]&&dark(n)){seen[n]=1;queue.push(n);}});}const w=maxx-minx+1,h=maxy-miny+1,fill=count/(w*h);if(w>7&&h>7&&w<80&&h<80&&Math.abs(w/h-1)<.35&&fill>.62)cand.push({x:(minx+maxx)/2/scale,y:(miny+maxy)/2/scale});}
+    if(cand.length<4){omrPoints=[];showOmrMarkers('Не удалось уверенно найти маркеры. Укажите четыре угла вручную.','bad');return;}const iw=omrSource.naturalWidth,ih=omrSource.naturalHeight,pick=(tx,ty)=>cand.reduce((a,b)=>((b.x-tx)**2+(b.y-ty)**2<(a.x-tx)**2+(a.y-ty)**2?b:a));omrPoints=[pick(0,0),pick(iw,0),pick(0,ih),pick(iw,ih)].map(p=>({x:p.x,y:p.y}));showOmrMarkers('Маркеры найдены автоматически. Проверьте четыре красные точки.','ok');
+  }
+  function showOmrMarkers(text,cls=''){const el=document.getElementById('omrScanStatus');el.className='omr-status '+cls;el.textContent=text;redrawOmrMarkers();}
+  function redrawOmrMarkers(){if(!omrSource)return;omrScanCtx.drawImage(omrSource,0,0,omrScan.width,omrScan.height);const sx=omrScan.width/omrSource.naturalWidth,sy=omrScan.height/omrSource.naturalHeight;omrScanCtx.font='bold 14px Arial';omrPoints.forEach((p,i)=>{omrScanCtx.beginPath();omrScanCtx.arc(p.x*sx,p.y*sy,10,0,Math.PI*2);omrScanCtx.strokeStyle='#b21f2d';omrScanCtx.lineWidth=3;omrScanCtx.stroke();omrScanCtx.fillStyle='#b21f2d';omrScanCtx.fillText(i+1,p.x*sx+12,p.y*sy-8);});}
+  document.getElementById('omrAutoMarkers').onclick=autoFindOmrMarkers;document.getElementById('omrResetMarkers').onclick=()=>{omrPoints=[];showOmrMarkers('Ручной режим: укажите четыре маркера по порядку.','warn');};
+  omrScan.onpointerdown=e=>{const r=omrScan.getBoundingClientRect(),x=(e.clientX-r.left)*omrSource.naturalWidth/r.width,y=(e.clientY-r.top)*omrSource.naturalHeight/r.height;if(omrPoints.length<4){omrPoints.push({x,y});redrawOmrMarkers();return;}omrDrag=omrPoints.reduce((best,p,i)=>((p.x-x)**2+(p.y-y)**2<(omrPoints[best].x-x)**2+(omrPoints[best].y-y)**2?i:best),0);};
+  omrScan.onpointermove=e=>{if(omrDrag<0)return;const r=omrScan.getBoundingClientRect();omrPoints[omrDrag]={x:(e.clientX-r.left)*omrSource.naturalWidth/r.width,y:(e.clientY-r.top)*omrSource.naturalHeight/r.height};redrawOmrMarkers();};omrScan.onpointerup=()=>omrDrag=-1;omrScan.onpointercancel=()=>omrDrag=-1;
+  function omrSolve(A,b){const n=8,M=A.map((r,i)=>r.concat(b[i]));for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;[M[c],M[p]]=[M[p],M[c]];const v=M[c][c]||1e-12;for(let j=c;j<=n;j++)M[c][j]/=v;for(let r=0;r<n;r++)if(r!==c){const f=M[r][c];for(let j=c;j<=n;j++)M[r][j]-=f*M[c][j];}}return M.map(r=>r[n]);}
+  function omrHom(src,dst){const A=[],b=[];src.forEach((p,i)=>{const q=dst[i];A.push([p.x,p.y,1,0,0,0,-p.x*q.x,-p.y*q.x]);b.push(q.x);A.push([0,0,0,p.x,p.y,1,-p.x*q.y,-p.y*q.y]);b.push(q.y);});return omrSolve(A,b);}
+  function omrHp(h,x,y){const d=h[6]*x+h[7]*y+1;return[(h[0]*x+h[1]*y+h[2])/d,(h[3]*x+h[4]*y+h[5])/d];}
+  function warpOmr(t){const src=document.createElement('canvas');src.width=omrSource.naturalWidth;src.height=omrSource.naturalHeight;const sc=src.getContext('2d');sc.drawImage(omrSource,0,0);const sd=sc.getImageData(0,0,src.width,src.height),out=document.createElement('canvas');out.width=OMR_W;out.height=OMR_H;const oc=out.getContext('2d'),od=oc.createImageData(OMR_W,OMR_H),L=omrLayout(t),ref=[{x:L.xs[0],y:L.ys[0]},{x:L.xs[2],y:L.ys[0]},{x:L.xs[0],y:L.ys.at(-1)},{x:L.xs[2],y:L.ys.at(-1)}],h=omrHom(ref,omrPoints);for(let y=0;y<OMR_H;y++)for(let x=0;x<OMR_W;x++){const [px,py]=omrHp(h,x,y),ix=Math.round(px),iy=Math.round(py),o=(y*OMR_W+x)*4;if(ix>=0&&iy>=0&&ix<sd.width&&iy<sd.height){const z=(iy*sd.width+ix)*4;od.data[o]=sd.data[z];od.data[o+1]=sd.data[z+1];od.data[o+2]=sd.data[z+2];}else od.data[o]=od.data[o+1]=od.data[o+2]=255;od.data[o+3]=255;}oc.putImageData(od,0,0);return out;}
+  function omrLum(data,x,y,r){let sum=0,n=0;for(let yy=y-r;yy<=y+r;yy++)for(let xx=x-r;xx<=x+r;xx++)if((xx-x)**2+(yy-y)**2<r*r){const i=(Math.round(yy)*data.width+Math.round(xx))*4;sum+=.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2];n++;}return sum/n;}
+  function recognizeOmr(){const t=omrSelected('omrCheckTest');if(!t)return alert('Выберите тест.');if(omrPoints.length!==4)return alert('Нужно указать четыре угловых маркера.');omrWarped=warpOmr(t);const data=omrWarped.getContext('2d').getImageData(0,0,OMR_W,OMR_H),L=omrLayout(t),bv=L.bubbles.map(b=>omrLum(data,b.x,b.y,8)),cv=L.code.map(b=>omrLum(data,b.x,b.y,5)),sorted=[...bv].sort((a,b)=>a-b),threshold=Math.min(190,(sorted[Math.floor(sorted.length*.25)]+sorted[Math.floor(sorted.length*.75)])/2),answers=Array(t.items.length).fill('');for(let q=0;q<t.items.length;q++){const marks=L.bubbles.filter(b=>b.q===q).filter(b=>bv[L.bubbles.indexOf(b)]<threshold*.93);answers[q]=marks.length===1?marks[0].l:marks.length>1?'conflict':'';}let code='';for(let col=0;col<4;col++){const rows=L.code.filter(b=>b.d===col),vals=rows.map(b=>cv[L.code.indexOf(b)]),min=Math.min(...vals),idx=vals.indexOf(min);code+=min<Math.min(205,vals.reduce((a,b)=>a+b,0)/10-12)?idx:'?';}omrDetection={t,L,answers,code,key:omrKey(t)};omrManual={};renderOmrReview();}
+  document.getElementById('omrRecognize').onclick=recognizeOmr;function effectiveOmr(i){return Object.hasOwn(omrManual,i)?omrManual[i]:omrDetection.answers[i];}
+  function renderOmrReview(){const d=omrDetection,canvas=document.getElementById('omrReview'),ctx=canvas.getContext('2d');canvas.width=OMR_W;canvas.height=OMR_H;ctx.drawImage(omrWarped,0,0);let correct=0;d.L.code.forEach(b=>{if(d.code[b.d]!=='?'&&+d.code[b.d]===b.n){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2);ctx.strokeStyle='#f0b400';ctx.lineWidth=5;ctx.stroke();}});d.L.bubbles.forEach(b=>{const a=effectiveOmr(b.q);if(a===b.l){ctx.beginPath();ctx.arc(b.x,b.y,b.r+3,0,Math.PI*2);ctx.strokeStyle=a===d.key[b.q]?'#00a651':'#e32020';ctx.lineWidth=5;ctx.stroke();}});document.getElementById('omrAnswerList').innerHTML=Array.from({length:d.t.items.length},(_,i)=>{const a=effectiveOmr(i),ok=a&&a===d.key[i];if(ok)correct++;return`<div class="omr-answer ${ok?'ok':a?'bad':''}"><b>№${i+1}</b><span>${a==='conflict'?'двойная':a||'пусто'}</span><select data-omr-q="${i}"><option value="">—</option>${OPTION_LETTERS.map(l=>`<option value="${l}" ${a===l?'selected':''}>${l}</option>`).join('')}</select></div>`;}).join('');document.querySelectorAll('[data-omr-q]').forEach(el=>el.onchange=()=>{omrManual[+el.dataset.omrQ]=el.value;renderOmrReview();});const student=students.find(s=>studentCode(s)===d.code&&activeMembership(s)?.groupId===d.t.groupId),pct=Math.round(correct/d.t.items.length*100);document.getElementById('omrIdentity').innerHTML=`Код: <input id="omrReviewCode" maxlength="4" value="${escapeHtml(d.code)}" style="width:80px;padding:6px"> <button class="btn ghost" id="omrApplyCode">Применить</button> · <span>${student?escapeHtml(studentDisplayName(student)):'<b style="color:var(--error)">ученик не найден</b>'}</span>`;document.getElementById('omrApplyCode').onclick=()=>{const code=document.getElementById('omrReviewCode').value.trim();if(!/^\d{4}$/.test(code))return alert('Введите четыре цифры, например 0001.');d.code=code;renderOmrReview();};document.getElementById('omrScore').textContent=`${correct} / ${d.t.items.length} · ${pct}%`;d.student=student;d.correct=correct;d.percent=pct;document.getElementById('omrReviewCard').hidden=false;}
+  document.getElementById('omrSaveResult').onclick=()=>{const d=omrDetection;if(!d?.student)return alert('Сначала укажите код ученика из группы этого теста.');const date=new Date().toISOString().slice(0,10);let sitting=sittings.find(s=>s.generatedTestId===d.t.id&&s.groupId===d.t.groupId&&s.date===date);if(!sitting){sitting={id:'s_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),generatedTestId:d.t.id,groupId:d.t.groupId,date,results:[]};sittings.push(sitting);}const prior=(sitting.results||[]).findIndex(r=>r.studentId===d.student.id);if(prior>=0&&!confirm('У этого ученика уже есть результат за сегодня. Заменить его?'))return;const result={studentId:d.student.id,studentName:studentDisplayName(d.student),scorePercent:d.percent,correctCount:d.correct,totalCount:d.t.items.length,omrCode:d.code,omrAnswers:Array.from({length:d.t.items.length},(_,i)=>effectiveOmr(i)),omrCheckedAt:new Date().toISOString()};if(prior>=0)sitting.results[prior]=result;else sitting.results.push(result);saveSittings();document.getElementById('omrReviewCard').hidden=true;alert('Результат сохранён и отправлен в общую базу.');};
 
   function suggestedTestTime(questionCount){
     return Math.min(60, Math.max(2, Math.round((questionCount||1) * 60 / 40)));

@@ -3776,18 +3776,30 @@
 
   async function buildCompactExamPages(t,opts){
     const area=document.getElementById('printArea');area.innerHTML='';area.classList.add('measuring');
-    const pages=[];let cursor=0,pageNo=0;
-    while(cursor<t.items.length){
-      const isFirst=pageNo===0,perPage=isFirst?4:6,chunk=t.items.slice(cursor,cursor+perPage),page=makeExamPage(t,opts,isFirst);
-      page.classList.add('force-compact');area.appendChild(page);pages.push(page);
-      const cols=page.querySelectorAll('.exam-col'),leftCount=Math.ceil(chunk.length/2);
-      for(let local=0;local<chunk.length;local++){
-        const node=makeExamQuestion(chunk[local],cursor+local);if(!node)continue;
-        cols[local<leftCount?0:1].appendChild(node);
-        const img=node.querySelector('img');if(img){try{if(img.decode)await img.decode();}catch(e){}}
+    if(document.fonts?.ready){try{await document.fonts.ready;}catch(e){}}
+    const pages=[];let page=makeExamPage(t,opts,true),colIndex=0;
+    page.classList.add('force-compact');area.appendChild(page);pages.push(page);
+    const settle=async node=>{
+      const images=[...node.querySelectorAll('img')];
+      await Promise.all(images.map(async img=>{try{if(img.decode)await img.decode();}catch(e){}}));
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    };
+    const hasRoom=col=>col.scrollHeight<=col.clientHeight-10;
+    for(let idx=0;idx<t.items.length;idx++){
+      const node=makeExamQuestion(t.items[idx],idx);if(!node)continue;
+      let cols=page.querySelectorAll('.exam-col'),col=cols[colIndex];col.appendChild(node);await settle(node);
+      if(!hasRoom(col)){
+        col.removeChild(node);colIndex++;
+        if(colIndex>=opts.columns){page=makeExamPage(t,opts,false);page.classList.add('force-compact');area.appendChild(page);pages.push(page);colIndex=0;}
+        cols=page.querySelectorAll('.exam-col');col=cols[colIndex];col.appendChild(node);await settle(node);
+        if(!hasRoom(col)){
+          page.classList.add('ultra-compact');await settle(node);
+          if(!hasRoom(col)){
+            const scale=Math.max(.55,Math.min(1,(col.clientHeight-14)/Math.max(1,col.scrollHeight)));
+            node.style.zoom=String(scale);node.style.width=(100/scale)+'%';await settle(node);
+          }
+        }
       }
-      if([...cols].some(c=>c.scrollHeight>c.clientHeight+2))page.classList.add('ultra-compact');
-      cursor+=chunk.length;pageNo++;
     }
     pages.forEach((p,i)=>{p.querySelector('.exam-page-number').textContent=String(i+1);const next=p.querySelector('.exam-next');if(i===pages.length-1){next.textContent='ОСТАНОВИТЕСЬ';next.classList.add('stop');p.classList.add('exam-last');}else next.textContent='ПЕРЕХОДИТЕ К СЛЕДУЮЩЕЙ СТРАНИЦЕ';});
     area.classList.remove('measuring');return pages;

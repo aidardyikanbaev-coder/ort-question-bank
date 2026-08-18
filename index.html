@@ -593,6 +593,7 @@
   .exam-q .pctx.italic{ font-style:italic; }
   .exam-q .ptext{ display:inline; }
   .exam-q img{ display:block; max-width:100%; max-height:57mm; width:auto; height:auto; object-fit:contain; margin:2mm auto; }
+  .exam-q.photo-only img{ max-height:120mm; }
   .exam-q .print-opts{ margin-left:0; }
   .exam-q .print-opts div{ margin:.7mm 0; break-inside:avoid; }
   .exam-q .print-opts img{ display:block; max-width:52mm; max-height:32mm; margin:1mm 0 1.5mm 7mm; object-fit:contain; }
@@ -630,9 +631,10 @@
   .key-table th,.key-table td{ border:1px solid #000; padding:4px 10px; text-align:center; }
   @media print{
     @page{ size:A4 portrait; margin:0; }
-    body *{ visibility:hidden; }
+    html,body{ width:210mm!important; margin:0!important; padding:0!important; background:#fff!important; }
+    body > *:not(#printArea){ display:none!important; }
     #printArea, #printArea *{ visibility:visible; }
-    #printArea{ display:block; position:absolute; top:0; left:0; width:100%; margin:0; padding:0; background:#fff; color:#000; }
+    #printArea{ display:block!important; position:static!important; width:210mm!important; margin:0!important; padding:0!important; background:#fff; color:#000; }
     .exam-page{ page-break-after:always; }
     .exam-page.exam-last{ page-break-after:auto; }
     .exam-page.exam-last.has-supplements{ page-break-after:always; }
@@ -691,7 +693,7 @@
   .omr-canvas-wrap{background:#ddd7c8;padding:10px;text-align:center;overflow:auto}.omr-canvas-wrap canvas{display:block;max-width:100%;height:auto;margin:0 auto 14px;background:#fff;border:1px solid var(--line)}.omr-canvas-wrap canvas:last-child{margin-bottom:0}
   .omr-video{display:none;width:100%;max-height:520px;margin-top:12px;background:#111}.omr-status{padding:9px 11px;border-left:4px solid var(--line);background:#f3efe5;font-size:12.5px}.omr-status.ok{border-color:var(--green)}.omr-status.warn{border-color:#ad6f13}.omr-status.bad{border-color:var(--error)}
   .omr-review{display:grid;grid-template-columns:minmax(280px,1.2fr) minmax(260px,.8fr);gap:14px}.omr-answers{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:5px;max-height:720px;overflow:auto}.omr-answer{border:1px solid var(--line);padding:6px;display:flex;gap:7px;align-items:center;font-size:12px}.omr-answer.ok{border-left:4px solid var(--green)}.omr-answer.bad{border-left:4px solid var(--error)}.omr-answer select{margin-left:auto}.omr-score{font:700 23px 'Fraunces',serif;color:var(--stamp)}
-  .omr-print-page{width:209.5mm;height:296mm;display:block;background:#fff;break-after:page;page-break-after:always;overflow:hidden;font-size:0;line-height:0}.omr-print-page:last-child{break-after:auto;page-break-after:auto}.omr-print-page canvas{width:209.5mm;height:296mm;display:block;margin:0;padding:0}
+  .omr-print-page{width:210mm;height:297mm;display:block;background:#fff;break-after:page;page-break-after:always;overflow:hidden;font-size:0;line-height:0}.omr-print-page:last-child{break-after:auto;page-break-after:auto}.omr-print-page canvas{width:210mm;height:297mm;display:block;margin:0;padding:0}
   @media(max-width:800px){.omr-grid,.omr-review{grid-template-columns:1fr}}
   @media(max-width:800px){.users-grid{grid-template-columns:1fr}.user-card{flex-direction:column}.user-card .action-row{width:100%}}
 </style>
@@ -727,6 +729,7 @@
       <button class="btn" id="btnInstallApp" hidden>Установить приложение</button>
       <input type="file" id="fileImport" accept="application/json" hidden>
       <button class="btn primary" id="btnAdd">+ Новая карточка</button>
+      <button class="btn" id="btnAddPhoto">+ Карточка из фото</button>
     </div>
     <div class="auth-user" id="authUser" hidden><span id="cloudStatus">Подключение…</span><span id="authUserEmail"></span><b class="role-badge" id="authRole"></b><button class="btn ghost" id="authContactEmail" type="button">Мой email</button><button class="btn ghost" id="authSetPassword" type="button">Изменить пароль</button><button class="btn ghost" id="authSignOut" type="button">Выйти</button></div>
   </header>
@@ -893,8 +896,12 @@
   <h2 id="formTitle">Новая карточка</h2>
   <p class="form-meta" id="formMeta" hidden></p>
   <form id="questionForm">
+    <div class="field" style="padding:12px;border:1px solid var(--gold);background:#fffaf0">
+      <label style="text-transform:none;letter-spacing:0;font:700 13px Inter;color:var(--ink);display:flex;align-items:center;gap:8px;margin:0"><input type="checkbox" id="fPhotoOnly"> Весь вопрос с вариантами находится на одном фото</label>
+      <div id="photoOnlyAnswer" hidden style="margin-top:10px"><label>Правильный ответ</label><select id="fPhotoCorrect"><option value="А">А</option><option value="Б">Б</option><option value="В">В</option><option value="Г">Г</option></select><p class="field-hint" style="margin-top:7px">Загрузите ниже фотографию всего задания. Перепечатывать вопрос и варианты не нужно.</p></div>
+    </div>
     <div class="field">
-      <label>Изображение (необязательно)</label>
+      <label id="questionImageLabel">Изображение (необязательно)</label>
       <div class="img-drop" id="imgDrop">
         <span id="imgDropText">Нажмите, чтобы загрузить PNG/JPEG</span>
         <img id="imgPreview" hidden>
@@ -903,13 +910,13 @@
       <input type="file" id="imgInput" accept="image/png,image/jpeg" hidden>
     </div>
 
-    <div class="field">
+    <div class="field" id="contextField">
       <label>Контекст задачи</label>
       <textarea id="fContext" placeholder="Описание эксперимента, вводные данные…"></textarea>
       <label style="text-transform:none;letter-spacing:0;font-family:Inter;font-size:12.5px;color:var(--ink);margin-top:7px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="fContextItalic"> Печатать контекст курсивом</label>
     </div>
 
-    <div class="field">
+    <div class="field" id="questionField">
       <label>Суть вопроса</label>
       <textarea id="fQuestion" placeholder="Например: какой вариант ответа верный?" required></textarea>
     </div>
@@ -920,7 +927,7 @@
       <p class="field-hint">«Готов к использованию» можно выбрать после устранения критических замечаний.</p>
     </div>
 
-    <div class="field">
+    <div class="field" id="optionsField">
       <label>Варианты ответов (отметьте верные)</label>
       <div id="optionsWrap"></div>
     </div>
@@ -1048,6 +1055,7 @@
   let peopleCloudReady = false;
   let peopleCloudSyncTimer = null;
   let peopleCloudSyncBusy = false;
+  let peopleCloudSyncScope = 'students';
   let assessmentCloudReady = false;
   let assessmentCloudSyncTimer = null;
   let assessmentCloudSyncBusy = false;
@@ -1071,7 +1079,7 @@
     document.getElementById('usersNav').hidden=!isWorkspaceOwner;
     authRole.textContent=isWorkspaceOwner?'Мастер':'Преподаватель';
     document.body.classList.toggle('teacher-readonly',!isWorkspaceOwner);
-    ['btnMenu','btnExport','btnImportTrigger','btnAdd','btnAddEmpty'].forEach(id=>{const el=document.getElementById(id);if(el)el.hidden=!isWorkspaceOwner;});
+    ['btnMenu','btnExport','btnImportTrigger','btnAdd','btnAddPhoto','btnAddEmpty'].forEach(id=>{const el=document.getElementById(id);if(el)el.hidden=!isWorkspaceOwner;});
     if(isWorkspaceOwner){
       readonlyObserver?.disconnect();readonlyObserver=null;
       document.querySelectorAll('[data-readonly-hidden="1"]').forEach(el=>{el.hidden=false;delete el.dataset.readonlyHidden;});
@@ -1342,11 +1350,16 @@
 
   async function uploadPeopleToCloud(){
     if(!isWorkspaceOwner||!currentCloudUser||peopleCloudSyncBusy)return;
-    peopleCloudSyncBusy=true;cloudStatus.textContent='Сохранение групп и учеников…';
+    const syncGroups=peopleCloudSyncScope==='all';peopleCloudSyncScope='students';
+    peopleCloudSyncBusy=true;cloudStatus.textContent=syncGroups?'Сохранение групп и учеников…':'Сохранение учеников…';
     try{
       let result;
       const groupMap=new Map();
-      for(const g of groups){const saved=await cloud.from('groups').upsert(cloudGroupRow(g,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();if(saved.error)throw saved.error;groupMap.set(g.id,saved.data.id);}
+      if(syncGroups){
+        for(const g of groups){const saved=await cloud.from('groups').upsert(cloudGroupRow(g,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();if(saved.error)throw saved.error;groupMap.set(g.id,saved.data.id);}
+      }else{
+        const existingGroups=await cloud.from('groups').select('id,legacy_id');if(existingGroups.error)throw existingGroups.error;(existingGroups.data||[]).forEach(g=>groupMap.set(g.legacy_id,g.id));
+      }
       const studentMap=new Map();
       for(const s of students){const saved=await cloud.from('students').upsert(cloudStudentRow(s,currentCloudUser),{onConflict:'owner_id,legacy_id'}).select('id').single();if(saved.error)throw saved.error;studentMap.set(s.id,saved.data.id);}
       const memberships=[];
@@ -1360,8 +1373,9 @@
     finally{peopleCloudSyncBusy=false;}
   }
 
-  function schedulePeopleCloudSync(){
+  function schedulePeopleCloudSync(scope='students'){
     if(!isWorkspaceOwner||!peopleCloudReady||!currentCloudUser)return;
+    if(scope==='all')peopleCloudSyncScope='all';
     clearTimeout(peopleCloudSyncTimer);
     peopleCloudSyncTimer=setTimeout(uploadPeopleToCloud,700);
   }
@@ -1374,11 +1388,17 @@
     if(groupResult.error)throw groupResult.error;if(studentResult.error)throw studentResult.error;
     const cloudGroups=groupResult.data||[],cloudStudents=studentResult.data||[];
     if(cloudGroups.length||cloudStudents.length){
+      const localGroups=groups.slice(),localStudents=students.slice();
       groups=cloudGroups.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
       students=cloudStudents.map(row=>({...row.payload,id:row.legacy_id||row.payload.id,seq:row.seq||row.payload.seq}));
+      const cloudGroupIds=new Set(groups.map(g=>g.id)),cloudStudentIds=new Set(students.map(s=>s.id));
+      const pendingGroups=localGroups.filter(g=>!cloudGroupIds.has(g.id)),pendingStudents=localStudents.filter(s=>!cloudStudentIds.has(s.id));
+      groups.push(...pendingGroups);students.push(...pendingStudents);
       localStorage.setItem(GROUPS_KEY,JSON.stringify(groups));localStorage.setItem(STUDENTS_KEY,JSON.stringify(students));
       localStorage.setItem(GROUP_SEQ_KEY,String(Math.max(0,...groups.map(g=>Number(g.seq)||0))));localStorage.setItem(STUDENT_SEQ_KEY,String(Math.max(0,...students.map(s=>Number(s.seq)||0))));
-      peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';if(!isWorkspaceOwner)renderGroupsView();await initializeCloudAssessments();return;
+      peopleCloudReady=true;cloudStatus.textContent='Синхронизировано';
+      if(isWorkspaceOwner&&(pendingGroups.length||pendingStudents.length)){peopleCloudSyncScope=pendingGroups.length?'all':'students';await uploadPeopleToCloud();}
+      if(!isWorkspaceOwner)renderGroupsView();await initializeCloudAssessments();return;
     }
     peopleCloudReady=true;
     if(isWorkspaceOwner&&(groups.length||students.length)){const ok=confirm(`В общей базе пока нет групп и учеников. Перенести туда локальные данные: групп — ${groups.length}, учеников — ${students.length}? Локальная копия останется в браузере.`);if(ok)await uploadPeopleToCloud();}
@@ -1926,7 +1946,7 @@
 
     const qtext = document.createElement('p');
     qtext.className = 'question';
-    qtext.textContent = q.question;
+    qtext.textContent = q.photoOnly ? 'Задание целиком на изображении' : q.question;
     card.appendChild(qtext);
 
     const ul = document.createElement('ul');
@@ -1935,7 +1955,10 @@
       if(!opt.text&&!opt.image) return;
       const li = document.createElement('li');
       if(opt.correct) li.classList.add('correct');
-      li.innerHTML = `<span class="mark">${opt.correct ? '✓' : ''}</span><span class="letter">${opt.letter})</span><span>${escapeHtml(opt.text||'')}${opt.image?`<img src="${opt.image}" alt="Изображение варианта ${escapeHtml(opt.letter)}" style="display:block;max-width:220px;max-height:130px;margin-top:5px;object-fit:contain">`:''}</span>`;
+      li.innerHTML = q.photoOnly
+        ? (opt.correct?`<span class="mark">✓</span><span>Правильный ответ: <b>${escapeHtml(opt.letter)}</b></span>`:'')
+        : `<span class="mark">${opt.correct ? '✓' : ''}</span><span class="letter">${opt.letter})</span><span>${escapeHtml(opt.text||'')}${opt.image?`<img src="${opt.image}" alt="Изображение варианта ${escapeHtml(opt.letter)}" style="display:block;max-width:220px;max-height:130px;margin-top:5px;object-fit:contain">`:''}</span>`;
+      if(q.photoOnly&&!opt.correct)return;
       ul.appendChild(li);
     });
     card.appendChild(ul);
@@ -2127,10 +2150,24 @@
     imgInput.value = '';
   });
 
-  function openForm(q, preset){
+  function setPhotoOnlyUI(enabled){
+    document.getElementById('photoOnlyAnswer').hidden=!enabled;
+    document.getElementById('contextField').hidden=enabled;
+    document.getElementById('questionField').hidden=enabled;
+    document.getElementById('optionsField').hidden=enabled;
+    document.getElementById('questionImageLabel').textContent=enabled?'Фото всего вопроса вместе с вариантами *':'Изображение (необязательно)';
+  }
+  document.getElementById('fPhotoOnly').onchange=e=>setPhotoOnlyUI(e.target.checked);
+
+  function openForm(q, preset, quickPhoto=false){
     editingId = q ? q.id : null;
+    const photoOnly=q?!!q.photoOnly:quickPhoto;
     formTitle.textContent = q ? `Редактирование · ${fmtAccession(q.seq)}`
-      : (preset ? `Новая карточка · «${preset.sourceTest}»` : 'Новая карточка');
+      : (photoOnly?'Новая карточка из фото':preset ? `Новая карточка · «${preset.sourceTest}»` : 'Новая карточка');
+    document.getElementById('fPhotoOnly').checked=photoOnly;
+    const priorCorrect=q?(q.options||[]).find(o=>o.correct):null;
+    document.getElementById('fPhotoCorrect').value=priorCorrect?.letter||'А';
+    setPhotoOnlyUI(photoOnly);
     document.getElementById('fContext').value = q ? q.context : '';
     document.getElementById('fContextItalic').checked = q ? !!q.contextItalic : false;
     document.getElementById('fQuestion').value = q ? q.question : '';
@@ -2178,7 +2215,8 @@
   function collectForm(){
     const context = document.getElementById('fContext').value.trim();
     const contextItalic = document.getElementById('fContextItalic').checked;
-    const question = document.getElementById('fQuestion').value.trim();
+    const photoOnly=document.getElementById('fPhotoOnly').checked;
+    let question = document.getElementById('fQuestion').value.trim();
     const status = document.getElementById('fStatus').value;
     const module = document.getElementById('fModule').value;
     const difficulty = parseInt(document.getElementById('fDifficulty').value, 10);
@@ -2188,7 +2226,7 @@
     const sourceComment = document.getElementById('fSourceComment').value.trim();
     const explanation = document.getElementById('fExplanation').value.trim();
 
-    const options = Array.from(optionsWrap.querySelectorAll('.option-row')).map(row => ({
+    let options = Array.from(optionsWrap.querySelectorAll('.option-row')).map(row => ({
       letter: row.querySelector('.opt-text').dataset.letter,
       text: row.querySelector('.opt-text').value.trim(),
       correct: row.querySelector('.opt-correct').checked,
@@ -2196,6 +2234,12 @@
       cloudImagePath: row._optionCloudImagePath||null
     }));
 
+    if(photoOnly){
+      if(!formImage){alert('Загрузите фотографию всего вопроса с вариантами.');return null;}
+      question='Задание на изображении';
+      const correctLetter=document.getElementById('fPhotoCorrect').value;
+      options=OPTION_LETTERS.map(letter=>({letter,text:letter,correct:letter===correctLetter,image:null,cloudImagePath:null}));
+    }
     if(!question){
       alert('Заполните суть вопроса.');
       return null;
@@ -2210,10 +2254,10 @@
       return null;
     }
 
-    const draft={context,contextItalic,question,module,difficulty,disputed:status==='disputed'||disputed,options,tags:[...formTags],image:formImage,sourceTest,sourceIndex,sourceComment,explanation,status};
+    const draft={context,contextItalic,question,module,difficulty,disputed:status==='disputed'||disputed,options,tags:[...formTags],image:formImage,sourceTest,sourceIndex,sourceComment,explanation,status,photoOnly};
     const check=validateQuestion(draft);
     if(status==='ready' && check.critical.length){ alert('Нельзя установить статус «Готов к использованию»: '+check.critical.join('; ')); return null; }
-    return { context, contextItalic, question, module, difficulty, disputed: status==='disputed'||disputed, status, options, tags: [...formTags], image: formImage,
+    return { context:photoOnly?'':context, contextItalic:photoOnly?false:contextItalic, question, module, difficulty, disputed: status==='disputed'||disputed, status, options, tags: [...formTags], image: formImage, photoOnly,
       sourceTest, sourceIndex, sourceComment, explanation };
   }
 
@@ -2250,6 +2294,7 @@
   document.getElementById('btnCancel').addEventListener('click', closeForm);
   overlay.addEventListener('click', closeForm);
   document.getElementById('btnAdd').addEventListener('click', () => openForm(null));
+  document.getElementById('btnAddPhoto').addEventListener('click', () => openForm(null,null,true));
   document.getElementById('btnAddEmpty').addEventListener('click', () => openForm(null));
 
   // ---------- Filters ----------
@@ -2329,7 +2374,7 @@
   const GROUP_SEQ_KEY = 'ort_bio_group_seq';
   let groups = loadGroups();
   function loadGroups(){ try{ return JSON.parse(localStorage.getItem(GROUPS_KEY)) || []; }catch(e){ return []; } }
-  function saveGroups(){ localStorage.setItem(GROUPS_KEY, JSON.stringify(groups)); schedulePeopleCloudSync(); }
+  function saveGroups(){ localStorage.setItem(GROUPS_KEY, JSON.stringify(groups)); schedulePeopleCloudSync('all'); }
   groups.forEach(g=>{g.groupType=g.groupType||'regular';g.courseTrack=g.courseTrack||'module1';g.archived=!!g.archived;g.scheduleDays=Array.isArray(g.scheduleDays)?g.scheduleDays:[];g.startTime=g.startTime||'';g.endTime=g.endTime||'';g.teacher=g.teacher||'';g.coTeacher=g.coTeacher||'';g.room=g.room||'';g.groupComment=g.groupComment||'';g.startDate=g.startDate||'';g.endDate=g.endDate||'';});
   function courseTrackLabel(v){return({book1:'Книга 1',book2:'Книга 2',module1:'Модуль 1',module2:'Модуль 2',practice:'Практический курс'})[v]||'Модуль 1';}
   function nextGroupSeq(){ let n = parseInt(localStorage.getItem(GROUP_SEQ_KEY)||'0',10)+1; localStorage.setItem(GROUP_SEQ_KEY,String(n)); return n; }
@@ -2339,7 +2384,7 @@
   const STUDENT_SEQ_KEY = 'ort_bio_student_seq';
   let students = loadStudents();
   function loadStudents(){ try{ return JSON.parse(localStorage.getItem(STUDENTS_KEY)) || []; }catch(e){ return []; } }
-  function saveStudents(){ localStorage.setItem(STUDENTS_KEY, JSON.stringify(students)); schedulePeopleCloudSync(); }
+  function saveStudents(){ localStorage.setItem(STUDENTS_KEY, JSON.stringify(students)); schedulePeopleCloudSync('students'); }
   function nextStudentSeq(){ let n = parseInt(localStorage.getItem(STUDENT_SEQ_KEY)||'0',10)+1; localStorage.setItem(STUDENT_SEQ_KEY,String(n)); return n; }
   const usedStudentCodes=new Set();let studentCodeCursor=1;
   students.slice().sort((a,b)=>(a.seq||0)-(b.seq||0)).forEach(s=>{s.firstName=s.firstName||String(s.name||'').trim().split(/\s+/).slice(1).join(' ');s.lastName=s.lastName||String(s.name||'').trim().split(/\s+/)[0]||'';s.name=[s.lastName,s.firstName].filter(Boolean).join(' ');s.school=s.school||'';s.grade=s.grade||'';s.phone=s.phone||'';s.comment=s.comment||'';if(!Array.isArray(s.memberships))s.memberships=s.groupId?[{id:'m_old_'+s.id,groupId:s.groupId,status:'active',date:(s.createdAt||new Date().toISOString()).slice(0,10),note:'Первоначальное зачисление'}]:[];let n=parseInt(s.studentCode,10)||parseInt(s.seq,10)||studentCodeCursor;while(usedStudentCodes.has(String(n).padStart(4,'0')))n++;s.studentCode=String(n).padStart(4,'0');usedStudentCodes.add(s.studentCode);studentCodeCursor=Math.max(studentCodeCursor,n+1);});
@@ -3192,7 +3237,7 @@
     const shuffledItems = shuffleArray(t.items).map(it => {
       const q = questionById(it.questionId);
       const n = q ? (q.options||[]).length : it.optionOrder.length;
-      return { questionId: it.questionId, optionOrder: shuffleArray([...Array(n).keys()]) };
+      return { questionId: it.questionId, optionOrder: q?.photoOnly?[...Array(n).keys()]:shuffleArray([...Array(n).keys()]) };
     });
     const variant = {
       id: 't_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
@@ -3554,7 +3599,7 @@
   function orderedOptionsFor(item){
     const q = questionById(item.questionId);
     if(!q) return null;
-    const order = (item.optionOrder && item.optionOrder.length) ? item.optionOrder : (q.options||[]).map((_,i)=>i);
+    const order = q.photoOnly?(q.options||[]).map((_,i)=>i):(item.optionOrder && item.optionOrder.length) ? item.optionOrder : (q.options||[]).map((_,i)=>i);
     return { q, opts: order.map(idx => q.options[idx]).filter(Boolean) };
   }
 
@@ -3684,8 +3729,10 @@
   function makeExamQuestion(item, idx){
     const info=orderedOptionsFor(item); if(!info)return null;
     const {q,opts}=info, node=document.createElement('div');
-    node.className='exam-q';
-    node.innerHTML=`${q.context?`<div class="pctx ${q.contextItalic?'italic':''}">${escapeHtml(q.context)}</div>`:''}<div class="q-line"><span class="pnum">${idx+1}.</span><span class="ptext">${escapeHtml(q.question)}</span></div>${q.image?`<img src="${q.image}" alt="Изображение к вопросу ${idx+1}">`:''}<div class="print-opts">${opts.map((o,i)=>`<div>(${OPTION_LETTERS[i]}) ${escapeHtml(o.text||'')}${o.image?`<img src="${o.image}" alt="Изображение варианта ${OPTION_LETTERS[i]}">`:''}</div>`).join('')}</div>`;
+    node.className='exam-q'+(q.photoOnly?' photo-only':'');
+    node.innerHTML=q.photoOnly
+      ? `<div class="q-line"><span class="pnum">${idx+1}.</span></div>${q.image?`<img src="${q.image}" alt="Вопрос ${idx+1} с вариантами ответов">`:''}`
+      : `${q.context?`<div class="pctx ${q.contextItalic?'italic':''}">${escapeHtml(q.context)}</div>`:''}<div class="q-line"><span class="pnum">${idx+1}.</span><span class="ptext">${escapeHtml(q.question)}</span></div>${q.image?`<img src="${q.image}" alt="Изображение к вопросу ${idx+1}">`:''}<div class="print-opts">${opts.map((o,i)=>`<div>(${OPTION_LETTERS[i]}) ${escapeHtml(o.text||'')}${o.image?`<img src="${o.image}" alt="Изображение варианта ${OPTION_LETTERS[i]}">`:''}</div>`).join('')}</div>`;
     return node;
   }
 

@@ -3366,6 +3366,7 @@
     actions.appendChild(mkBtn('Переименовать','ghost', () => renameTest(t)));
     actions.appendChild(mkBtn('Предпросмотр A4','ghost', () => openA4Preview(t)));
     actions.appendChild(mkBtn('Печать в 2 колонки','primary', () => printTestCompact(t)));
+    actions.appendChild(mkBtn('2 колонки · максимально экономно','ghost', () => printTestBalanced(t)));
     actions.appendChild(mkBtn('Печать / PDF','ghost', () => {
       printEl.hidden = !printEl.hidden;
       if(!printEl.hidden){
@@ -3777,8 +3778,6 @@
   async function buildCompactExamPages(t,opts){
     const area=document.getElementById('printArea');area.innerHTML='';area.classList.add('measuring');
     if(document.fonts?.ready){try{await document.fonts.ready;}catch(e){}}
-    const pages=[];let page=makeExamPage(t,opts,true),colIndex=0;
-    page.classList.add('force-compact');area.appendChild(page);pages.push(page);
     const settle=async node=>{
       const images=[...node.querySelectorAll('img')];
       await Promise.all(images.map(async img=>{try{if(img.decode)await img.decode();}catch(e){}}));
@@ -3789,6 +3788,8 @@
       const colBox=col.getBoundingClientRect(),itemBox=last.getBoundingClientRect(),marginBottom=parseFloat(getComputedStyle(last).marginBottom)||0;
       return itemBox.bottom+marginBottom<=colBox.bottom-8;
     };
+    const pages=[];let page=makeExamPage(t,opts,true),colIndex=0;
+    page.classList.add('force-compact');area.appendChild(page);pages.push(page);
     for(let idx=0;idx<t.items.length;idx++){
       const node=makeExamQuestion(t.items[idx],idx);if(!node)continue;
       let cols=page.querySelectorAll('.exam-col'),col=cols[colIndex];col.appendChild(node);await settle(node);
@@ -3805,6 +3806,34 @@
         }
       }
     }
+    pages.forEach((p,i)=>{p.querySelector('.exam-page-number').textContent=String(i+1);const next=p.querySelector('.exam-next');if(i===pages.length-1){next.textContent='ОСТАНОВИТЕСЬ';next.classList.add('stop');p.classList.add('exam-last');}else next.textContent='ПЕРЕХОДИТЕ К СЛЕДУЮЩЕЙ СТРАНИЦЕ';});
+    area.classList.remove('measuring');return pages;
+  }
+
+  async function buildBalancedExamPages(t,opts){
+    const area=document.getElementById('printArea');area.innerHTML='';area.classList.add('measuring');
+    if(document.fonts?.ready){try{await document.fonts.ready;}catch(e){}}
+    const pages=[];let page=null,cols=null;
+    const newPage=()=>{page=makeExamPage(t,opts,pages.length===0);page.classList.add('force-compact');area.appendChild(page);pages.push(page);cols=[...page.querySelectorAll('.exam-col')];};
+    const settle=async node=>{await Promise.all([...node.querySelectorAll('img')].map(async img=>{try{if(img.decode)await img.decode();}catch(e){}}));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));};
+    const bottom=col=>{const last=col.lastElementChild;if(!last)return 0;return last.getBoundingClientRect().bottom-col.getBoundingClientRect().top;};
+    const fits=col=>{const last=col.lastElementChild;if(!last)return true;return last.getBoundingClientRect().bottom+(parseFloat(getComputedStyle(last).marginBottom)||0)<=col.getBoundingClientRect().bottom-8;};
+    const pending=t.items.map((item,idx)=>({item,idx}));newPage();
+    while(pending.length){
+      let placedOnPage=false;
+      for(let p=0;p<pending.length;){
+        const entry=pending[p],node=makeExamQuestion(entry.item,entry.idx);if(!node){pending.splice(p,1);continue;}
+        const order=cols.map((c,i)=>[bottom(c),i]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);let placed=false;
+        for(const ci of order){cols[ci].appendChild(node);await settle(node);if(fits(cols[ci])){placed=true;break;}cols[ci].removeChild(node);}
+        if(placed){pending.splice(p,1);placedOnPage=true;}else p++;
+      }
+      if(!pending.length)break;
+      if(!placedOnPage&&cols.every(c=>!c.children.length)){
+        const entry=pending.shift(),node=makeExamQuestion(entry.item,entry.idx);cols[0].appendChild(node);await settle(node);page.classList.add('ultra-compact');await settle(node);
+      }
+      newPage();
+    }
+    if(pages.length&&pages.at(-1).querySelectorAll('.exam-q').length===0){pages.pop();page.remove();}
     pages.forEach((p,i)=>{p.querySelector('.exam-page-number').textContent=String(i+1);const next=p.querySelector('.exam-next');if(i===pages.length-1){next.textContent='ОСТАНОВИТЕСЬ';next.classList.add('stop');p.classList.add('exam-last');}else next.textContent='ПЕРЕХОДИТЕ К СЛЕДУЮЩЕЙ СТРАНИЦЕ';});
     area.classList.remove('measuring');return pages;
   }
@@ -3838,6 +3867,13 @@
   async function printTestCompact(t){
     const opts=previewOptions(t,t.preset&&TEST_PRESETS[t.preset]?t.preset:'custom');
     await buildCompactExamPages(t,opts);
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    window.print();
+  }
+
+  async function printTestBalanced(t){
+    const opts=previewOptions(t,t.preset&&TEST_PRESETS[t.preset]?t.preset:'custom');
+    await buildBalancedExamPages(t,opts);
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     window.print();
   }

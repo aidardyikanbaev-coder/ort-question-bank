@@ -3178,6 +3178,7 @@
       <div style="display:flex; gap:10px;">
         <button class="btn ghost" id="btnCancelPreview" type="button">Отмена</button>
         <button class="btn primary" id="btnFixTest" type="button">Зафиксировать тест</button>
+        <button class="btn" id="btnFixTestEconomy" type="button">Зафиксировать максимально экономично</button>
       </div>
     `;
     const list = document.getElementById('previewList');
@@ -3203,16 +3204,27 @@
       list.appendChild(row);
     });
     document.getElementById('btnCancelPreview').onclick = () => { previewItems = null; previewMeta = null; panel.hidden = true; };
-    document.getElementById('btnFixTest').onclick = fixTest;
+    document.getElementById('btnFixTest').onclick = () => fixTest(false);
+    document.getElementById('btnFixTestEconomy').onclick = () => {
+      previewItems=paperEfficientOrder(previewItems);
+      fixTest(true);
+    };
   }
 
-  function fixTest(){
+  function paperEfficientOrder(items){
+    const weighted=items.map((item,index)=>{const q=questionById(item.questionId),text=[q?.context,q?.question,...(q?.options||[]).map(o=>o.text)].filter(Boolean).join(' '),images=(q?.image?1:0)+(q?.options||[]).filter(o=>o.image).length;return{item,index,weight:90+text.length*.55+images*260+(q?.photoOnly?420:0)};}).sort((a,b)=>b.weight-a.weight||a.index-b.index);
+    const result=[];let left=0,right=weighted.length-1;
+    while(left<=right){result.push(weighted[left++].item);if(left<=right)result.push(weighted[right--].item);}
+    return result;
+  }
+
+  function fixTest(paperOptimized=false){
     const name = document.getElementById('testNameInput').value.trim() || defaultTestName();
     const test = {
       id: 't_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
       seq: nextTestSeq(), name, groupId: previewMeta.groupId || null, mode: previewMeta.mode, meta: previewMeta,
       items: previewItems.map(it => ({...it})), createdAt: new Date().toISOString(),
-      voided: false, variantOf: null, variantLabel: null, preset: activeGeneratorPreset
+      voided: false, variantOf: null, variantLabel: null, preset: activeGeneratorPreset, paperOptimized
     };
     genTests.push(test);
     saveTests();
@@ -3221,7 +3233,7 @@
     const msg = document.getElementById('genSuccessMsg');
     if(msg){
       msg.style.display = '';
-      msg.textContent = `Тест «${name}» сохранён (${test.items.length} вопрос(ов)). Смотрите вкладку «Тесты».`;
+      msg.textContent = `Тест «${name}» сохранён (${test.items.length} вопрос(ов))${paperOptimized?' · экономная компоновка включена':''}. Смотрите вкладку «Тесты».`;
     }
     refreshAllTestListings();
     updateAvailCounter();
@@ -3242,7 +3254,7 @@
       id: 't_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
       seq: nextTestSeq(), name: base.name, groupId: t.groupId, mode: t.mode, meta: t.meta,
       items: shuffledItems, createdAt: new Date().toISOString(),
-      voided: false, variantOf: baseId, variantLabel: nextLabel
+      voided: false, variantOf: baseId, variantLabel: nextLabel, paperOptimized:!!t.paperOptimized
     };
     genTests.push(variant);
     saveTests();
@@ -3316,7 +3328,7 @@
     card.innerHTML = `
       <div class="test-head">
         <div>
-          <p class="test-title">${escapeHtml(t.name)}${t.variantLabel ? ' · вариант '+escapeHtml(t.variantLabel) : ''}${t.voided ? ' <span class="voided-tag">(отменён)</span>' : ''}</p>
+          <p class="test-title">${escapeHtml(t.name)}${t.variantLabel ? ' · вариант '+escapeHtml(t.variantLabel) : ''}${t.paperOptimized?' <span class="status-badge status-ready">экономная печать</span>':''}${t.voided ? ' <span class="voided-tag">(отменён)</span>' : ''}</p>
           <p class="test-meta">№${t.seq} · ${new Date(t.createdAt).toLocaleDateString('ru-RU')} · ${group ? escapeHtml(group.name) : 'без группы'} · ${t.items.length} вопрос(ов)</p>
           <span class="status-pill ${t.voided?'void':''}">${t.voided?'Отменён':'Активен'}</span>
         </div>
@@ -3855,7 +3867,7 @@
     const grid=document.getElementById('previewPresetGrid');grid.innerHTML='';
     Object.entries(TEST_PRESETS).forEach(([key,p])=>{const b=document.createElement('button');b.type='button';b.className='preset-btn'+(key===currentPreviewPreset?' active':'');b.innerHTML=`<b>${p.label}</b><span>${p.questions?`${p.questions} вопросов · ${p.time} мин · ${p.points} баллов`:'Автоматический расчёт по числу вопросов'}</span>`;b.onclick=async()=>{currentPreviewPreset=key;await renderA4Preview();};grid.appendChild(b);});
     currentPreviewOpts=previewOptions(currentPreviewTest,currentPreviewPreset);
-    const pages=await buildCompactExamPages(currentPreviewTest,currentPreviewOpts),canvas=document.getElementById('a4PreviewCanvas');canvas.innerHTML='';
+    const pages=currentPreviewTest.paperOptimized?await buildBalancedExamPages(currentPreviewTest,currentPreviewOpts):await buildCompactExamPages(currentPreviewTest,currentPreviewOpts),canvas=document.getElementById('a4PreviewCanvas');canvas.innerHTML='';
     pages.forEach(p=>{const clone=p.cloneNode(true);clone.classList.add('a4-preview-sheet');canvas.appendChild(clone);});
     document.getElementById('previewSummary').textContent=`${TEST_PRESETS[currentPreviewPreset].label} · ${currentPreviewTest.items.length} вопросов · ${currentPreviewOpts.time} мин · максимум ${currentPreviewOpts.points} баллов · страниц: ${pages.length}`;
     document.getElementById('printArea').innerHTML='';
@@ -3866,7 +3878,7 @@
 
   async function printTestCompact(t){
     const opts=previewOptions(t,t.preset&&TEST_PRESETS[t.preset]?t.preset:'custom');
-    await buildCompactExamPages(t,opts);
+    if(t.paperOptimized)await buildBalancedExamPages(t,opts);else await buildCompactExamPages(t,opts);
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     window.print();
   }
@@ -3880,7 +3892,7 @@
 
   async function printTest(t, opts){
     if(!isWorkspaceOwner)opts={...opts,watermark:TEACHER_WATERMARK};
-    const pages=opts.columns===2?await buildCompactExamPages(t,opts):await buildExamPages(t,opts),supplement=buildSupplementHTML(t,opts),area=document.getElementById('printArea');
+    const pages=opts.columns===2?(t.paperOptimized?await buildBalancedExamPages(t,opts):await buildCompactExamPages(t,opts)):await buildExamPages(t,opts),supplement=buildSupplementHTML(t,opts),area=document.getElementById('printArea');
     if(supplement){pages[pages.length-1].classList.add('has-supplements');area.insertAdjacentHTML('beforeend',supplement);if(!isWorkspaceOwner)area.querySelectorAll('.print-page').forEach(page=>{if(!page.querySelector('.exam-watermark'))page.insertAdjacentHTML('afterbegin',watermarkHtml(TEACHER_WATERMARK));});}
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     window.print();

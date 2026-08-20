@@ -544,7 +544,15 @@
   .student-answer-detail{margin-top:8px;padding:10px;background:var(--paper-deep)}
   .student-answer-question{background:#fff;border:1px solid var(--line-soft);padding:10px;margin:7px 0}
   .student-option{padding:5px 7px;margin:3px 0;border-left:4px solid transparent;font-size:12px}.student-option.correct{background:#e1eadc;border-left-color:var(--green);color:var(--green-deep)}.student-option.wrong{background:#f3dfdc;border-left-color:var(--error);color:var(--error)}
-  .student-option img,.analysis-question-options img{display:block;max-width:220px;max-height:150px;margin:5px 0}
+  .student-option img,.analysis-question-options img{display:block;max-width:220px;max-height:150px;margin:5px 0;cursor:zoom-in}
+  .test-scoring-toolbar{position:sticky;top:0;z-index:12;background:var(--paper-raised);border:1px solid var(--line);box-shadow:var(--shadow);padding:12px;margin-bottom:14px}
+  .test-scoring-controls{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.test-scoring-controls label{font-size:10px;color:var(--ink-soft)}.test-scoring-controls input{display:block;width:68px;padding:6px;margin-top:3px}
+  .void-summary{font-size:12px;margin:0 0 10px;color:var(--error)}
+  .image-viewer{position:fixed;inset:0;z-index:10000;background:rgba(15,20,14,.82);display:grid;place-items:center;padding:3vh 3vw}.image-viewer[hidden]{display:none}
+  .image-viewer-panel{width:min(94vw,1200px);height:90vh;background:#fff;display:flex;flex-direction:column;border-radius:4px;overflow:hidden}
+  .image-viewer-tools{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:9px 12px;background:var(--paper-deep);border-bottom:1px solid var(--line)}
+  .image-viewer-stage{flex:1;overflow:auto;text-align:center;padding:18px;background:#343834}.image-viewer-stage img{display:block;width:100%;max-width:none;height:auto;margin:auto;background:#fff}
+  .zoomable-image{cursor:zoom-in}
   .preview-score-tools{display:flex;gap:9px;flex-wrap:wrap;align-items:end;padding:12px;background:var(--paper-deep);margin-bottom:12px}
   .preview-score-tools label{font-size:11px;color:var(--ink-soft)}.preview-score-tools input{width:68px;padding:6px}
   .preview-thumb{max-width:170px;max-height:110px;display:block;margin:8px 0;border:1px solid var(--line);cursor:zoom-in}
@@ -1084,6 +1092,7 @@
   let assessmentCloudReady = false;
   let assessmentCloudSyncTimer = null;
   let assessmentCloudSyncBusy = false;
+  let assessmentCloudSyncQueued = false;
   let attendanceCloudReady = false;
   let attendanceCloudSyncTimer = null;
   let attendanceCloudSyncBusy = false;
@@ -1435,14 +1444,16 @@
   }
 
   async function uploadAssessmentsToCloud(){
-    if(!currentCloudUser||assessmentCloudSyncBusy)return;
+    if(!currentCloudUser)return false;
+    if(assessmentCloudSyncBusy){assessmentCloudSyncQueued=true;return false;}
     assessmentCloudSyncBusy=true;cloudStatus.textContent='Сохранение тестов и результатов…';
     if(!isWorkspaceOwner){
-      try{const {data,error}=await cloud.functions.invoke('teacher-workspace',{body:{action:'save_results',sittings}});if(error||data?.error)throw new Error(data?.error||error.message);cloudStatus.textContent='Результаты синхронизированы';}
+      let ok=false;try{const {data,error}=await cloud.functions.invoke('teacher-workspace',{body:{action:'save_results',sittings}});if(error||data?.error)throw new Error(data?.error||error.message);cloudStatus.textContent='Результаты синхронизированы';ok=true;}
       catch(error){console.error(error);cloudStatus.textContent='Ошибка сохранения результатов';}
-      finally{assessmentCloudSyncBusy=false;}
-      return;
+      finally{assessmentCloudSyncBusy=false;if(assessmentCloudSyncQueued){assessmentCloudSyncQueued=false;scheduleAssessmentCloudSync();}}
+      return ok;
     }
+    let ok=false;
     try{
       const testMap=new Map();
       for(const t of genTests){
@@ -1460,14 +1471,23 @@
         if(results.length){const resultSave=await cloud.from('test_results').upsert(results,{onConflict:'owner_id,legacy_id'});if(resultSave.error)throw resultSave.error;}
       }
       cloudStatus.textContent='Синхронизировано';
+      ok=true;
     }catch(error){console.error(error);cloudStatus.textContent='Ошибка синхронизации тестов';}
-    finally{assessmentCloudSyncBusy=false;}
+    finally{assessmentCloudSyncBusy=false;if(assessmentCloudSyncQueued){assessmentCloudSyncQueued=false;scheduleAssessmentCloudSync();}}
+    return ok;
   }
 
   function scheduleAssessmentCloudSync(){
     if(!assessmentCloudReady||!currentCloudUser)return;
     clearTimeout(assessmentCloudSyncTimer);
     assessmentCloudSyncTimer=setTimeout(uploadAssessmentsToCloud,700);
+  }
+
+  async function flushAssessmentCloudSync(){
+    clearTimeout(assessmentCloudSyncTimer);assessmentCloudSyncTimer=null;
+    for(let i=0;i<100&&assessmentCloudSyncBusy;i++)await new Promise(r=>setTimeout(r,100));
+    clearTimeout(assessmentCloudSyncTimer);assessmentCloudSyncTimer=null;
+    return uploadAssessmentsToCloud();
   }
 
   async function initializeCloudAssessments(){
@@ -3235,7 +3255,6 @@
         <div class="preview-extra">${q&&q.image?`<details><summary>Показать изображение задания</summary><img class="preview-thumb" src="${q.image}" alt="Изображение вопроса ${idx+1}"></details>`:'Изображения у вопроса нет'}</div>
       `;
       row.querySelector('.item-points').onchange=e=>{item.points=positivePoints(e.target.value);};
-      row.querySelector('.preview-thumb')?.addEventListener('click',e=>window.open(e.currentTarget.src,'_blank'));
       row.querySelector('[data-act=up]').onclick = () => { if(idx>0){ [previewItems[idx-1],previewItems[idx]]=[previewItems[idx],previewItems[idx-1]]; renderPreview(); } };
       row.querySelector('[data-act=down]').onclick = () => { if(idx<previewItems.length-1){ [previewItems[idx+1],previewItems[idx]]=[previewItems[idx],previewItems[idx+1]]; renderPreview(); } };
       row.querySelector('[data-act=remove]').onclick = () => { previewItems.splice(idx,1); renderPreview(); };
@@ -3288,11 +3307,20 @@
   function scoreTestAnswers(t,answers){
     const key=omrKey(t);let correct=0,total=0,pointsEarned=0,pointsPossible=0;
     (t.items||[]).forEach((item,i)=>{if(itemIsVoided(item))return;total++;const points=itemPoints(item);pointsPossible+=points;if(answers?.[i]&&answers[i]===key[i]){correct++;pointsEarned+=points;}});
-    return{correctCount:correct,totalCount:total,pointsEarned:Math.round(pointsEarned*10)/10,pointsPossible:Math.round(pointsPossible*10)/10,scorePercent:pointsPossible?Math.round(pointsEarned/pointsPossible*1000)/10:0};
+    return{correctCount:correct,totalCount:total,pointsEarned:Math.round(pointsEarned*10)/10,pointsPossible:Math.round(pointsPossible*10)/10,scorePercent:total?Math.round(correct/total*1000)/10:0};
   }
   function recalculateTestResults(t){
     sittings.filter(s=>s.generatedTestId===t.id).forEach(s=>(s.results||[]).forEach(r=>{const answers=resultAnswers(r);if(answers)Object.assign(r,scoreTestAnswers(t,answers));}));
   }
+
+  function ensureImageViewer(){
+    let viewer=document.getElementById('questionImageViewer');if(viewer)return viewer;
+    viewer=document.createElement('div');viewer.id='questionImageViewer';viewer.className='image-viewer';viewer.hidden=true;viewer.innerHTML=`<div class="image-viewer-panel"><div class="image-viewer-tools"><b style="margin-right:auto">Просмотр изображения</b>${[50,100,150,200,300].map(n=>`<button class="btn ghost" data-image-zoom="${n}">${n}%</button>`).join('')}<button class="btn primary" data-image-close>Закрыть</button></div><div class="image-viewer-stage"><img alt="Увеличенное изображение вопроса"></div></div>`;document.body.appendChild(viewer);
+    viewer.querySelectorAll('[data-image-zoom]').forEach(button=>button.onclick=()=>{viewer.querySelector('img').style.width=button.dataset.imageZoom+'%';});
+    viewer.querySelector('[data-image-close]').onclick=()=>viewer.hidden=true;viewer.onclick=e=>{if(e.target===viewer)viewer.hidden=true;};return viewer;
+  }
+  function openQuestionImage(src,alt='Изображение вопроса'){const viewer=ensureImageViewer(),img=viewer.querySelector('img');img.src=src;img.alt=alt;img.style.width='100%';viewer.hidden=false;}
+  document.addEventListener('click',event=>{const img=event.target.closest?.('img.preview-thumb,.student-option img,.analysis-question-options img');if(!img)return;event.preventDefault();event.stopPropagation();openQuestionImage(img.src,img.alt);});
 
   function createVariant(t){
     const baseId = t.variantOf || t.id;
@@ -3429,7 +3457,7 @@
         printEl.innerHTML = `<div class="inline-form" style="margin-top:10px;align-items:flex-end;">
           <div class="f"><label>Макет</label><select class="pp-layout"><option value="2" selected>Две колонки · экономный</option><option value="1">Одна колонка</option></select></div>
           <div class="f"><label>Время, минут</label><input type="number" class="pp-time" min="1" max="60" value="${suggestedTestTime(t.items.length)}" style="width:85px"><small style="color:var(--ink-faint)">авто по числу вопросов</small></div>
-          <div class="f"><label>Максимум баллов</label><input type="number" class="pp-points" min="1" max="150" value="${suggestedTestPoints(t.items.length)}" style="width:95px"><small style="color:var(--ink-faint)">до 150</small></div>
+          <div class="f"><label>Максимум баллов</label><input type="number" class="pp-points" min="1" max="999" value="${testMaxPoints(t)}" style="width:95px"><small style="color:var(--ink-faint)">по вопросам</small></div>
           <div class="f"><label>Водяной знак</label><select class="pp-watermark"><option value="">Без знака</option><option value="ОРТ · БИОЛОГИЯ">ОРТ · БИОЛОГИЯ</option><option value="ЧЕРНОВИК">ЧЕРНОВИК</option><option value="ЭКЗЕМПЛЯР УЧИТЕЛЯ">ЭКЗЕМПЛЯР УЧИТЕЛЯ</option><option value="__custom__">Свой текст…</option></select></div>
           <div class="f pp-custom-wrap" hidden><label>Свой знак</label><input type="text" class="pp-custom" placeholder="Ваш текст"></div>
           <div class="f" style="flex:1;min-width:240px"><label>Инструкция</label><input type="text" class="pp-instruction" value="В этом разделе Вам нужно ответить на вопросы и решить несколько задач. Графики, рисунки и схемы дают необходимую информацию для ответов."></div>
@@ -3501,6 +3529,9 @@
   }
 
   let currentDetailTest=null;
+  const dirtyTestScoring=new Set();
+  function markTestScoringDirty(t){recalculateTestResults(t);localStorage.setItem(TESTS_KEY,JSON.stringify(genTests));localStorage.setItem(SITTINGS_KEY,JSON.stringify(sittings));dirtyTestScoring.add(t.id);}
+  async function commitTestScoring(t,button){button.disabled=true;button.textContent='Сохраняю…';localStorage.setItem(TESTS_KEY,JSON.stringify(genTests));localStorage.setItem(SITTINGS_KEY,JSON.stringify(sittings));const ok=!currentCloudUser||await flushAssessmentCloudSync();if(ok){dirtyTestScoring.delete(t.id);button.textContent='Изменения зафиксированы';setTimeout(()=>{if(currentDetailTest?.id===t.id)renderTestDetail(t,'questions');},500);}else{button.disabled=false;button.textContent='Повторить сохранение';alert('Не удалось зафиксировать изменения в облаке. Попробуйте ещё раз.');}}
   function openTestDetail(t){currentDetailTest=t;document.getElementById('testDetailOverlay').hidden=false;document.getElementById('testDetailPage').hidden=false;renderTestDetail(t,'questions');}
   function closeTestDetail(){currentDetailTest=null;document.getElementById('testDetailOverlay').hidden=true;document.getElementById('testDetailPage').hidden=true;}
   document.getElementById('btnCloseTestDetail').onclick=closeTestDetail;
@@ -3524,9 +3555,13 @@
     box.innerHTML=`<p class="eyebrow">Тест №${t.seq}</p><h2>${escapeHtml(t.name)}${t.variantLabel?' · вариант '+escapeHtml(t.variantLabel):''}</h2><p class="section-hint">${group?escapeHtml(group.name):'Без группы'} · ${t.items.length} вопросов · ${t.voided?'отменён':'активен'}</p><div class="detail-tabs">${[['questions','Вопросы'],['variants','Варианты'],['groups','Группа'],['results','Результаты'],['analytics','Аналитика']].map(x=>`<button data-tab="${x[0]}" class="${tab===x[0]?'active':''}">${x[1]}</button>`).join('')}</div><div id="detailTabBody"></div>`;
     const body=document.getElementById('detailTabBody');
     if(tab==='questions'){
-      body.innerHTML=t.items.map((it,i)=>{const q=questionById(it.questionId);return `<div class="test-question-row ${itemIsVoided(it)?'voided':''}"><b>№${i+1}. ${q?escapeHtml(q.photoOnly?'Задание целиком на изображении':q.question):'(вопрос удалён)'}</b>${q&&q.tags&&q.tags.length?'<br><small>'+q.tags.map(escapeHtml).join(', ')+'</small>':''}${q&&q.image?`<details><summary>Показать изображение</summary><img class="preview-thumb" src="${q.image}" alt="Вопрос ${i+1}"></details>`:''}<div class="action-row" style="margin-top:8px"><span class="status-badge">${q?(q.difficulty===1?'лёгкий':q.difficulty===3?'сложный':'средний'):'—'}</span><label>Баллы <input data-test-points="${i}" type="number" min="0.1" step="0.5" value="${itemPoints(it)}" style="width:65px" ${isWorkspaceOwner?'':'disabled'}></label>${isWorkspaceOwner?`<button class="btn ${itemIsVoided(it)?'primary':'danger-text'}" data-toggle-void="${i}">${itemIsVoided(it)?'Вернуть в расчёт':'Аннулировать вопрос'}</button>`:''}${itemIsVoided(it)?'<span class="status-badge status-archived">не учитывается</span>':''}</div></div>`;}).join('');
-      body.querySelectorAll('[data-test-points]').forEach(input=>input.onchange=()=>{const item=t.items[+input.dataset.testPoints];item.points=positivePoints(input.value);recalculateTestResults(t);saveTests();saveSittings();renderTestDetail(t,'questions');});
-      body.querySelectorAll('[data-toggle-void]').forEach(button=>button.onclick=()=>{const item=t.items[+button.dataset.toggleVoid];item.voided=!item.voided;recalculateTestResults(t);saveTests();saveSittings();renderTestDetail(t,'questions');});
+      const voidedNumbers=t.items.map((it,i)=>itemIsVoided(it)?i+1:null).filter(Boolean);
+      body.innerHTML=`${isWorkspaceOwner?`<div class="test-scoring-toolbar"><p class="void-summary"><b>Аннулированные вопросы:</b> ${voidedNumbers.length?voidedNumbers.map(n=>'№'+n).join(', '):'нет'}</p><div class="test-scoring-controls"><label>Всем вопросам<input id="detailAllPoints" type="number" min="0.1" step="0.5" value="1"></label><button class="btn ghost" data-apply-all-points>Применить всем</button><label>Лёгкие<input id="detailEasyPoints" type="number" min="0.1" step="0.5" value="1"></label><label>Средние<input id="detailMediumPoints" type="number" min="0.1" step="0.5" value="2"></label><label>Сложные<input id="detailHardPoints" type="number" min="0.1" step="0.5" value="3"></label><button class="btn ghost" data-apply-difficulty-points>По сложности</button><button class="btn primary" id="saveTestScoring">${dirtyTestScoring.has(t.id)?'Зафиксировать изменения *':'Зафиксировать изменения'}</button></div></div>`:`<p class="void-summary"><b>Аннулированные вопросы:</b> ${voidedNumbers.length?voidedNumbers.map(n=>'№'+n).join(', '):'нет'}</p>`}${t.items.map((it,i)=>{const q=questionById(it.questionId);return `<div class="test-question-row ${itemIsVoided(it)?'voided':''}"><b>№${i+1}. ${q?escapeHtml(q.photoOnly?'Задание целиком на изображении':q.question):'(вопрос удалён)'}</b>${q&&q.tags&&q.tags.length?'<br><small>'+q.tags.map(escapeHtml).join(', ')+'</small>':''}${q&&q.image?`<details><summary>Показать изображение</summary><img class="preview-thumb" src="${q.image}" alt="Вопрос ${i+1}"></details>`:''}<div class="action-row" style="margin-top:8px"><span class="status-badge">${q?(q.difficulty===1?'лёгкий':q.difficulty===3?'сложный':'средний'):'—'}</span><label>Баллы <input data-test-points="${i}" type="number" min="0.1" step="0.5" value="${itemPoints(it)}" style="width:65px" ${isWorkspaceOwner?'':'disabled'}></label>${isWorkspaceOwner?`<button class="btn ${itemIsVoided(it)?'primary':'danger-text'}" data-toggle-void="${i}">${itemIsVoided(it)?'Вернуть в расчёт':'Аннулировать вопрос'}</button>`:''}${itemIsVoided(it)?'<span class="status-badge status-archived">не учитывается</span>':''}</div></div>`;}).join('')}`;
+      body.querySelectorAll('[data-test-points]').forEach(input=>input.onchange=()=>{t.items[+input.dataset.testPoints].points=positivePoints(input.value);markTestScoringDirty(t);const save=body.querySelector('#saveTestScoring');if(save)save.textContent='Зафиксировать изменения *';});
+      body.querySelectorAll('[data-toggle-void]').forEach(button=>button.onclick=()=>{const item=t.items[+button.dataset.toggleVoid];item.voided=!item.voided;markTestScoringDirty(t);renderTestDetail(t,'questions');});
+      body.querySelector('[data-apply-all-points]')?.addEventListener('click',()=>{const value=positivePoints(body.querySelector('#detailAllPoints').value);t.items.forEach(it=>it.points=value);markTestScoringDirty(t);renderTestDetail(t,'questions');});
+      body.querySelector('[data-apply-difficulty-points]')?.addEventListener('click',()=>{const values={1:positivePoints(body.querySelector('#detailEasyPoints').value),2:positivePoints(body.querySelector('#detailMediumPoints').value),3:positivePoints(body.querySelector('#detailHardPoints').value)};t.items.forEach(it=>it.points=values[questionById(it.questionId)?.difficulty||2]);markTestScoringDirty(t);renderTestDetail(t,'questions');});
+      const saveButton=body.querySelector('#saveTestScoring');if(saveButton)saveButton.onclick=()=>commitTestScoring(t,saveButton);
     }
     if(tab==='variants')body.innerHTML=variants.map(v=>`<div class="student-row"><span class="sname">${v.variantLabel?'Вариант '+escapeHtml(v.variantLabel):'Основной тест'}</span><span class="avg">№${v.seq}</span><button class="btn ghost" data-open-variant="${v.id}">Открыть</button></div>`).join('');
     if(tab==='groups')body.innerHTML=group?`<div class="dash-card"><div class="label">Назначенная группа</div><div class="value" style="font-size:24px">${escapeHtml(group.name)}</div><div class="sub">${studentsInGroup(group.id).length} учеников · средний результат ${groupAverage(group.id)===null?'—':groupAverage(group.id).toFixed(1)+'%'}</div></div>`:'<p class="manage-empty">Тест пока не назначен группе.</p>';
